@@ -1,0 +1,109 @@
+---
+title: Wave
+description: A spring-based animation engine for iOS and macOS that creates fluid, interactive, and retargetable animations
+---
+
+<img className="block" src="/images/logo.png" alt="Wave Logo" />
+
+Wave is a spring-based animation engine for iOS, iPadOS, and macOS. It makes it easy to create fluid, interactive, and interruptible animations that feel great.
+
+Wave has no external dependencies and can be easily dropped into existing UIKit, SwiftUI, or AppKit based projects and apps.
+
+## Why Wave?
+
+The core feature of Wave is that all animations are **retargetable**, meaning you can change an animation's destination value in-flight, and the animation will gracefully redirect to that new value.
+
+At its core, retargeting is the process of preserving an animation's velocity even as its target changes, which Wave does automatically. This results in animations that feel natural and responsive, especially for interactive gestures.
+
+<Note>
+Retargeting is particularly powerful for gesture-driven animations. When a user changes direction mid-gesture, Wave preserves the momentum and creates a smooth arc to the new destination instead of an abrupt change.
+</Note>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Spring-based physics" icon="wave-sine">
+    All animations use realistic spring physics with configurable damping and response values
+  </Card>
+  <Card title="Retargetable animations" icon="arrows-turn-to-dots">
+    Change animation targets in-flight while preserving velocity for fluid transitions
+  </Card>
+  <Card title="Zero dependencies" icon="circle-check">
+    Drop Wave into any UIKit, SwiftUI, or AppKit project with no external dependencies
+  </Card>
+  <Card title="ProMotion support" icon="gauge-high">
+    Supports 120 fps animations on ProMotion devices for ultra-smooth motion
+  </Card>
+</CardGroup>
+
+## Two ways to animate
+
+Wave provides two distinct APIs depending on your needs:
+
+### Block-based animation
+
+The easiest way to get started. Similar to `UIView.animate()`, but with spring physics and retargeting built-in. Wave manages all the animation details for you.
+
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.68, response: 0.8)) {
+    myView.animator.center = destination
+    myView.animator.scale = CGPoint(x: 1.2, y: 1.2)
+}
+```
+
+### Property-based animation
+
+For more control, use `SpringAnimator` to animate custom values or properties not supported by the block-based API. You receive intermediate values and drive the animation yourself.
+
+```swift
+let animator = SpringAnimator<CGFloat>(spring: mySpring)
+animator.value = 0.0
+animator.target = 100.0
+
+animator.valueChanged = { currentValue in
+    // Use the intermediate spring values
+    customView.progress = currentValue
+}
+
+animator.start()
+```
+
+## What you'll learn
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Add Wave to your project using Swift Package Manager
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Create your first Wave animation in under 5 minutes
+  </Card>
+  <Card title="Block-based API" icon="code" href="/guides/block-based-animations">
+    Learn to animate UIView and CALayer properties with Wave
+  </Card>
+  <Card title="Property-based API" icon="sliders" href="/guides/property-based-animations">
+    Gain fine-grained control with SpringAnimator
+  </Card>
+</CardGroup>
+
+## Platform support
+
+Wave supports the following platforms:
+
+- iOS 13.0+
+- iPadOS 13.0+
+- macOS 10.12+
+
+## ProMotion devices
+
+To enable high frame-rate animations on ProMotion devices (120 fps), add a key/value pair to your `Info.plist`:
+
+<CodeGroup>
+```xml Info.plist
+<key>CADisableMinimumFrameDuration</key>
+<true/>
+```
+</CodeGroup>
+
+<Warning>
+Without this entry, animations will be capped at 60 fps even on ProMotion devices.
+</Warning>

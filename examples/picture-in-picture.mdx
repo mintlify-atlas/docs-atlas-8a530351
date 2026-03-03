@@ -1,0 +1,302 @@
+---
+title: Picture-in-picture animation
+description: Build a fluid, retargetable picture-in-picture implementation with gesture-driven animations
+---
+
+This example demonstrates Wave's core strength: retargetable animations that preserve velocity when interrupted. We'll build a picture-in-picture (PiP) view that smoothly animates to screen corners, similar to iOS's native PiP feature.
+
+## Overview
+
+The PiP demo showcases:
+
+- Gesture-driven animations with velocity preservation
+- Retargeting to new destinations mid-flight
+- Different spring configurations for interactive vs. animated states
+- Visual path tracing using property-based animators
+
+<video controls src="/path-to-pip-demo.mp4" />
+
+## Understanding retargeting
+
+When a user drags the PiP view and changes direction mid-flight, traditional animations feel jerky. Wave animations preserve the view's velocity and gracefully arc to the new destination, creating a fluid, natural experience.
+
+The key difference: Wave maintains momentum through interruptions, while standard UIKit animations restart from zero velocity.
+
+## Complete implementation
+
+<Steps>
+
+<Step title="Set up the PiP view">
+
+First, create the view that will be dragged around:
+
+```swift PictureInPictureView.swift
+import UIKit
+import Wave
+
+class PictureInPictureView: UIView {
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        
+        let gradient = CAGradientLayer()
+        gradient.colors = [UIColor.systemOrange.cgColor, UIColor.systemRed.cgColor]
+        gradient.cornerRadius = 16
+        gradient.cornerCurve = .continuous
+        gradient.frame = bounds
+        layer.insertSublayer(gradient, at: 0)
+        
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.2
+        layer.shadowRadius = 5
+        layer.shadowOffset = .init(width: 0, height: 3)
+    }
+    
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+```
+
+</Step>
+
+<Step title="Configure spring models">
+
+Define two different springs for different interaction states:
+
+```swift PictureInPictureViewController.swift
+class PictureInPictureViewController: UIViewController {
+    
+    let pipView = PictureInPictureView(frame: CGRect(x: 0, y: 0, width: 120, height: 80))
+    
+    /// A tighter spring used when dragging the PiP view around.
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.26)
+    
+    /// A looser spring used to animate the PiP view to its final location after dragging ends.
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+}
+```
+
+<Note>
+The `interactiveSpring` has a lower `response` value (0.26) to closely follow the user's touch. The `animatedSpring` has a higher `response` (0.8) for a more natural, bouncy animation when released.
+</Note>
+
+</Step>
+
+<Step title="Handle pan gestures">
+
+Implement gesture handling with velocity injection:
+
+```swift PictureInPictureViewController.swift
+private var initialTouchLocation: CGPoint = .zero
+
+@objc
+private func handlePan(sender: UIPanGestureRecognizer) {
+    guard let pipView = sender.view as? PictureInPictureView else {
+        return
+    }
+    
+    let touchLocation = sender.location(in: view)
+    let touchTranslation = sender.translation(in: view)
+    let touchVelocity = sender.velocity(in: view)
+    
+    if sender.state == .began {
+        // Mark the view's initial position.
+        initialTouchLocation = pipView.center
+    }
+    
+    switch sender.state {
+    case .began, .changed:
+        let targetPiPViewCenter = CGPoint(
+            x: initialTouchLocation.x + touchTranslation.x,
+            y: initialTouchLocation.y + touchTranslation.y
+        )
+        
+        // We want the dragged view to closely follow the user's touch (not exactly 1:1, but close).
+        // So animating using the `interactiveSpring` that has a lower `response` value.
+        Wave.animate(withSpring: interactiveSpring) {
+            // Just update the view's `animator.center` – that's it!
+            pipView.animator.center = targetPiPViewCenter
+        }
+        
+    case .ended, .cancelled:
+        // The gesture ended, so figure out where the PiP view should ultimately land.
+        let pipViewDestination = targetCenter(currentPosition: touchLocation, velocity: touchVelocity)
+        
+        // The `animatedSpring` is looser and takes a longer time to settle, so use that to animate the final position.
+        //
+        // Finally "inject" the pan gesture's lift-off velocity into the animation.
+        // That `gestureVelocity` parameter will affect the `center` animation.
+        Wave.animate(withSpring: animatedSpring, gestureVelocity: touchVelocity) {
+            pipView.animator.center = pipViewDestination
+        }
+        
+    default:
+        break
+    }
+}
+```
+
+<Tip>
+The `gestureVelocity` parameter is crucial for natural animations. It injects the pan gesture's lift-off velocity into the spring animation, making throws feel continuous and realistic.
+</Tip>
+
+</Step>
+
+<Step title="Calculate target positions">
+
+Determine which corner the PiP view should snap to:
+
+```swift PictureInPictureViewController.swift
+private func targetCenter(currentPosition: CGPoint, velocity: CGPoint) -> CGPoint {
+    let size = pipView.bounds.size
+    
+    let screenWidth = view.bounds.width
+    let screenHeight = view.bounds.height
+    
+    var projectedPosition = project(point: currentPosition, velocity: velocity)
+    
+    projectedPosition.x = clip(value: projectedPosition.x, lower: 1, upper: screenWidth - 1)
+    projectedPosition.y = clip(value: projectedPosition.y, lower: 1, upper: screenHeight - 1)
+    
+    let topLeft = CGRect(x: 0, y: 0, width: screenWidth / 2.0, height: screenHeight / 2.0)
+    let topRight = CGRect(x: screenWidth / 2.0, y: 0, width: screenWidth / 2.0, height: screenHeight / 2.0)
+    let bottomLeft = CGRect(x: 0, y: screenHeight / 2.0, width: screenWidth / 2.0, height: screenHeight / 2.0)
+    let bottomRight = CGRect(x: screenWidth / 2.0, y: screenHeight / 2.0, width: screenWidth / 2.0, height: screenHeight / 2.0)
+    
+    var origin: CGPoint = .zero
+    
+    let marginX = 25.0
+    let marginY = marginX
+    
+    let window = UIApplication.shared.delegate?.window
+    let safeAreaTop = window??.safeAreaInsets.top ?? size.height
+    let safeAreaBottom = window??.safeAreaInsets.bottom ?? size.height
+    
+    if topLeft.contains(projectedPosition) {
+        origin = CGPoint(x: marginX, y: safeAreaTop + marginY)
+    } else if topRight.contains(projectedPosition) {
+        origin = CGPoint(x: (view.bounds.width - size.width - marginX), y: safeAreaTop + marginY)
+    } else if bottomLeft.contains(projectedPosition) {
+        origin = CGPoint(x: marginX, y: (view.bounds.height - size.height - safeAreaBottom - marginY))
+    } else if bottomRight.contains(projectedPosition) {
+        origin = CGPoint(x: (view.bounds.width - size.width - marginX), y: (view.bounds.height - size.height - safeAreaBottom - marginY))
+    }
+    
+    let center = CGPoint(x: origin.x + size.width / 2.0, y: origin.y + size.height / 2.0)
+    
+    return center
+}
+```
+
+The `project()` function predicts where the view will land based on its current velocity, helping determine the appropriate corner.
+
+</Step>
+
+<Step title="Wire up the gesture recognizer">
+
+Attach the pan gesture to the PiP view:
+
+```swift PictureInPictureViewController.swift
+override func viewDidLoad() {
+    super.viewDidLoad()
+    
+    // Position the PiP view initially in the top-left corner
+    pipView.center = targetCenter(currentPosition: view.frame.topLeft, velocity: .zero)
+    
+    // Create an instant pan gesture recognizer that begins immediately
+    let panGestureRecognizer = InstantPanGestureRecognizer(
+        target: self, 
+        action: #selector(handlePan(sender:))
+    )
+    pipView.addGestureRecognizer(panGestureRecognizer)
+    
+    view.addSubview(pipView)
+}
+```
+
+</Step>
+
+</Steps>
+
+## Advanced: Visualizing the animation path
+
+To draw the orange path that shows the PiP view's trajectory, use a property-based animator:
+
+```swift PictureInPictureViewController.swift
+/// In order to draw the path that the PiP view takes when animating to its final destination,
+/// we need the intermediate spring values. Use a separate `CGPoint` animator to get these values.
+lazy var positionAnimator = SpringAnimator<CGPoint>(spring: animatedSpring)
+
+/// The view that draws the path of the PiP view.
+lazy var pathView = PathView(frame: view.bounds)
+```
+
+When the gesture ends, run the position animator in parallel:
+
+```swift
+case .ended, .cancelled:
+    let pipViewDestination = targetCenter(currentPosition: touchLocation, velocity: touchVelocity)
+    
+    // Animate the view using the block-based API
+    Wave.animate(withSpring: animatedSpring, gestureVelocity: touchVelocity) {
+        pipView.animator.center = pipViewDestination
+    }
+    
+    // This position animation runs the exact same spring animation as the above block
+    // We run this to get the intermediate spring values, such that we can draw the view's animation path.
+    positionAnimator.spring = animatedSpring
+    positionAnimator.value = pipView.center             // The current, presentation value of the view.
+    positionAnimator.target = pipView.animator.center   // The target center that we just set above.
+    positionAnimator.velocity = touchVelocity
+    
+    positionAnimator.valueChanged = { [weak self] location in
+        self?.pathView.add(location)
+    }
+    
+    positionAnimator.start()
+```
+
+<Note>
+The `positionAnimator` runs the same spring physics as the view's animation, giving us access to every intermediate position for drawing the path.
+</Note>
+
+## Instant pan gesture recognizer
+
+Wave's sample app includes a custom gesture recognizer that enters the `.began` state immediately on touch:
+
+```swift InstantPanGestureRecognizer.swift
+import UIKit
+
+public class InstantPanGestureRecognizer: UIPanGestureRecognizer {
+    
+    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        self.state = .began
+    }
+}
+```
+
+This provides more responsive gesture handling compared to the default `UIPanGestureRecognizer`, which waits for minimum movement.
+
+## Key takeaways
+
+<CardGroup cols={2}>
+  <Card title="Two springs for two states" icon="sliders">
+    Use a tight spring (low response) for interactive dragging and a looser spring (higher response) for release animations
+  </Card>
+  <Card title="Velocity injection" icon="gauge-high">
+    Pass gesture velocity to `gestureVelocity` parameter for natural throw animations that feel continuous
+  </Card>
+  <Card title="Automatic retargeting" icon="arrows-turn-to-dots">
+    Changing `animator.center` mid-flight automatically retargets the animation while preserving velocity
+  </Card>
+  <Card title="Property-based for visualization" icon="route">
+    Use `SpringAnimator` directly when you need intermediate values for custom rendering or effects
+  </Card>
+</CardGroup>
+
+## See also
+
+- [Interactive gestures](/examples/interactive-gestures) - More gesture-driven animation patterns
+- [Springs](/concepts/springs) - Deep dive into spring parameters
+- [Wave.animate()](/api/wave) - Full reference for the block-based API

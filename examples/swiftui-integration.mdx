@@ -1,0 +1,493 @@
+---
+title: SwiftUI integration
+description: Use Wave's spring animations in SwiftUI views with property-based animators and gesture handling
+---
+
+While Wave is primarily a UIKit/AppKit animation engine, it integrates seamlessly with SwiftUI through property-based animators. This approach gives you Wave's retargetable spring physics in declarative SwiftUI code.
+
+## Overview
+
+SwiftUI integration uses:
+
+- `SpringAnimator` to drive state changes
+- `@State` variables to trigger view updates
+- SwiftUI's gesture modifiers for input
+- Wave's velocity-based physics for natural motion
+
+<Note>
+Wave doesn't replace SwiftUI's built-in animations but complements them with retargetable spring physics and gesture velocity preservation.
+</Note>
+
+## Complete draggable box example
+
+Here's a full implementation of a draggable box that snaps back to center:
+
+```swift SwiftUIView.swift
+import SwiftUI
+import Wave
+
+struct SwiftUIView: View {
+    
+    let offsetAnimator = SpringAnimator<CGPoint>(spring: Spring(dampingRatio: 0.72, response: 0.7))
+    
+    @State var boxOffset: CGPoint = .zero
+    
+    var body: some View {
+        let size = 80.0
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                .fill(.blue)
+                .frame(width: size, height: size)
+            VStack {
+                Text("SwiftUI")
+                    .foregroundColor(.white)
+            }
+            
+        }.onAppear {
+            offsetAnimator.value = .zero
+            
+            // The offset animator's callback will update the `offset` state variable.
+            offsetAnimator.valueChanged = { newValue in
+                boxOffset = newValue
+            }
+        }
+        .offset(x: boxOffset.x, y: boxOffset.y)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    // Update the animator's target to the new drag translation.
+                    offsetAnimator.target = CGPoint(x: value.translation.width, y: value.translation.height)
+                    
+                    // Don't animate the box's position when we're dragging it.
+                    offsetAnimator.mode = .nonAnimated
+                    offsetAnimator.start()
+                }
+                .onEnded { value in
+                    // Animate the box to its original location (i.e. with zero translation).
+                    offsetAnimator.target = .zero
+                    
+                    // We want the box to animate to its original location, so use an `animated` mode.
+                    offsetAnimator.mode = .animated
+                    
+                    // Take the velocity of the gesture, and give it to the animator.
+                    // This makes the throw animation feel natural and continuous.
+                    offsetAnimator.velocity = CGPoint(x: value.velocity.width, y: value.velocity.height)
+                    offsetAnimator.start()
+                }
+        )
+    }
+}
+
+struct SwiftUIView_Previews: PreviewProvider {
+    static var previews: some View {
+        SwiftUIView()
+    }
+}
+```
+
+## Step-by-step breakdown
+
+<Steps>
+
+<Step title="Create the animator">
+
+Initialize a `SpringAnimator` with your desired spring configuration:
+
+```swift
+let offsetAnimator = SpringAnimator<CGPoint>(
+    spring: Spring(dampingRatio: 0.72, response: 0.7)
+)
+```
+
+The generic type `<CGPoint>` determines what type of value the animator will produce.
+
+</Step>
+
+<Step title="Set up state binding">
+
+Create a `@State` variable and bind it to the animator's output:
+
+```swift
+@State var boxOffset: CGPoint = .zero
+
+var body: some View {
+    // Your view...
+    .onAppear {
+        offsetAnimator.value = .zero
+        
+        // Update state whenever animator produces new values
+        offsetAnimator.valueChanged = { newValue in
+            boxOffset = newValue
+        }
+    }
+    .offset(x: boxOffset.x, y: boxOffset.y)
+}
+```
+
+<Tip>
+The `valueChanged` callback is called on every frame of the animation, updating your `@State` variable and triggering view re-renders.
+</Tip>
+
+</Step>
+
+<Step title="Handle drag gestures">
+
+Use SwiftUI's `DragGesture` to drive the animator:
+
+```swift
+.gesture(
+    DragGesture()
+        .onChanged { value in
+            offsetAnimator.target = CGPoint(
+                x: value.translation.width, 
+                y: value.translation.height
+            )
+            offsetAnimator.mode = .nonAnimated
+            offsetAnimator.start()
+        }
+        .onEnded { value in
+            offsetAnimator.target = .zero
+            offsetAnimator.mode = .animated
+            offsetAnimator.velocity = CGPoint(
+                x: value.velocity.width, 
+                y: value.velocity.height
+            )
+            offsetAnimator.start()
+        }
+)
+```
+
+</Step>
+
+<Step title="Extract gesture velocity">
+
+SwiftUI's `DragGesture.Value` doesn't expose velocity directly. Use this extension:
+
+```swift DragGesture+Extensions.swift
+import SwiftUI
+
+extension DragGesture.Value {
+    
+    internal var velocity: CGSize {
+        let valueMirror = Mirror(reflecting: self)
+        for valueChild in valueMirror.children {
+            if valueChild.label == "velocity" {
+                let velocityMirror = Mirror(reflecting: valueChild.value)
+                for velocityChild in velocityMirror.children {
+                    if velocityChild.label == "valuePerSecond" {
+                        if let velocity = velocityChild.value as? CGSize {
+                            return velocity
+                        }
+                    }
+                }
+            }
+        }
+        fatalError("Unable to retrieve velocity from \(Self.self)")
+    }
+}
+```
+
+<Note>
+This uses reflection to access internal velocity values. While not ideal, it's necessary until SwiftUI officially exposes gesture velocity.
+</Note>
+
+</Step>
+
+</Steps>
+
+## Animation modes in SwiftUI
+
+Switch between animated and instant updates:
+
+```swift
+// During dragging: instant updates
+offsetAnimator.mode = .nonAnimated
+offsetAnimator.target = dragTranslation
+offsetAnimator.start()
+
+// On release: spring animation
+offsetAnimator.mode = .animated
+offsetAnimator.target = .zero
+offsetAnimator.velocity = gestureVelocity
+offsetAnimator.start()
+```
+
+This pattern is essential for gesture-driven animations where you want:
+1. **Tracking** - instant response during dragging (`.nonAnimated`)
+2. **Release** - smooth spring animation on lift-off (`.animated`)
+
+## Animating custom properties
+
+You can animate any scalar or vector value:
+
+### Animating rotation
+
+```swift
+struct RotatingView: View {
+    let rotationAnimator = SpringAnimator<CGFloat>(
+        spring: Spring(dampingRatio: 0.65, response: 0.8)
+    )
+    
+    @State var rotation: CGFloat = 0
+    
+    var body: some View {
+        Rectangle()
+            .fill(.purple)
+            .frame(width: 100, height: 100)
+            .rotationEffect(.radians(rotation))
+            .onAppear {
+                rotationAnimator.value = 0
+                rotationAnimator.valueChanged = { newValue in
+                    rotation = newValue
+                }
+            }
+            .onTapGesture {
+                rotationAnimator.target = (rotationAnimator.target ?? 0) + .pi / 2
+                rotationAnimator.start()
+            }
+    }
+}
+```
+
+### Animating scale with `CGPoint`
+
+```swift
+struct ScalingView: View {
+    let scaleAnimator = SpringAnimator<CGPoint>(
+        spring: Spring(dampingRatio: 0.7, response: 0.5)
+    )
+    
+    @State var scale: CGPoint = CGPoint(x: 1, y: 1)
+    
+    var body: some View {
+        Circle()
+            .fill(.orange)
+            .frame(width: 80, height: 80)
+            .scaleEffect(x: scale.x, y: scale.y)
+            .onAppear {
+                scaleAnimator.value = CGPoint(x: 1, y: 1)
+                scaleAnimator.valueChanged = { newValue in
+                    scale = newValue
+                }
+            }
+            .onTapGesture {
+                let newScale = scale.x == 1.0 ? 1.5 : 1.0
+                scaleAnimator.target = CGPoint(x: newScale, y: newScale)
+                scaleAnimator.start()
+            }
+    }
+}
+```
+
+### Animating color with custom interpolation
+
+```swift
+struct ColorAnimatingView: View {
+    // Note: Wave doesn't natively support Color animation,
+    // but you can animate RGB components separately
+    let hueAnimator = SpringAnimator<CGFloat>(
+        spring: Spring(dampingRatio: 0.8, response: 0.6)
+    )
+    
+    @State var hue: CGFloat = 0
+    
+    var body: some View {
+        Rectangle()
+            .fill(Color(hue: hue, saturation: 0.8, brightness: 0.9))
+            .frame(width: 200, height: 200)
+            .onAppear {
+                hueAnimator.value = 0
+                hueAnimator.valueChanged = { newValue in
+                    hue = newValue
+                }
+            }
+            .onTapGesture {
+                hueAnimator.target = CGFloat.random(in: 0...1)
+                hueAnimator.start()
+            }
+    }
+}
+```
+
+## Using Wave in UIHostingController
+
+Embed SwiftUI views with Wave animations in UIKit:
+
+```swift SwiftUIViewController.swift
+import UIKit
+import SwiftUI
+
+class SwiftUIViewController: UIViewController {
+    
+    override func viewDidLoad() {
+        let hostingController = UIHostingController(rootView: SwiftUIView())
+        addChild(hostingController)
+        view.addSubview(hostingController.view)
+        hostingController.didMove(toParent: self)
+        hostingController.view.frame = view.bounds
+    }
+}
+```
+
+This allows you to use Wave-powered SwiftUI views within primarily UIKit apps.
+
+## Completion handlers in SwiftUI
+
+Handle animation lifecycle events:
+
+```swift
+offsetAnimator.completion = { event in
+    switch event {
+    case .finished(let finalValue):
+        print("Animation finished at: \(finalValue)")
+        // Trigger haptic feedback, update state, etc.
+        
+    case .retargeted(let from, let to):
+        print("Animation retargeted from \(from) to \(to)")
+        // Handle interruption
+    }
+}
+```
+
+## Performance considerations
+
+<AccordionGroup>
+  <Accordion title="Minimize view updates">
+    Only update the specific properties that need to change:
+    
+    ```swift
+    // Good: Only offset changes
+    .offset(x: boxOffset.x, y: boxOffset.y)
+    
+    // Avoid: Entire view rebuilds
+    .frame(width: animatedWidth, height: animatedHeight)
+    .background(animatedColor)
+    .offset(x: animatedX, y: animatedY)
+    ```
+  </Accordion>
+  
+  <Accordion title="Use @State judiciously">
+    Only make values `@State` if they trigger view updates:
+    
+    ```swift
+    @State var visibleOffset: CGPoint = .zero  // ✅ Used in view
+    let animator = SpringAnimator<CGPoint>()   // ✅ Not state, doesn't change
+    ```
+  </Accordion>
+  
+  <Accordion title="Reuse animators">
+    Create animators outside of the view body:
+    
+    ```swift
+    struct MyView: View {
+        let animator = SpringAnimator<CGFloat>(spring: .defaultAnimated)  // ✅ Created once
+        
+        var body: some View {
+            // NOT: let animator = SpringAnimator<CGFloat>()  // ❌ Created every render
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Comparison with SwiftUI animations
+
+<CodeGroup>
+
+```swift Wave
+let animator = SpringAnimator<CGPoint>(spring: Spring(dampingRatio: 0.7, response: 0.6))
+@State var offset: CGPoint = .zero
+
+animator.valueChanged = { newValue in
+    offset = newValue
+}
+
+// Retargetable mid-flight
+animator.target = newTarget
+animator.velocity = gestureVelocity
+animator.start()
+```
+
+```swift SwiftUI
+@State var offset: CGSize = .zero
+
+withAnimation(.interpolatingSpring(stiffness: 200, damping: 20)) {
+    offset = newTarget
+}
+
+// Not retargetable - starts new animation
+```
+
+</CodeGroup>
+
+**Wave advantages:**
+- Retargetable animations that preserve velocity
+- Direct velocity injection from gestures
+- Property-based control with `SpringAnimator`
+- Identical physics on all platforms
+
+**SwiftUI advantages:**
+- More declarative syntax
+- Automatic view dependency tracking
+- Built-in transition support
+- No manual state management
+
+## Common patterns
+
+### Snap-to-grid
+
+```swift
+func snapToGrid(_ point: CGPoint, gridSize: CGFloat) -> CGPoint {
+    CGPoint(
+        x: round(point.x / gridSize) * gridSize,
+        y: round(point.y / gridSize) * gridSize
+    )
+}
+
+.onEnded { value in
+    let dragEnd = CGPoint(x: value.translation.width, y: value.translation.height)
+    let snapped = snapToGrid(dragEnd, gridSize: 50)
+    
+    offsetAnimator.target = snapped
+    offsetAnimator.velocity = CGPoint(x: value.velocity.width, y: value.velocity.height)
+    offsetAnimator.start()
+}
+```
+
+### Rubber-banding constraints
+
+```swift
+let maxDrag: CGFloat = 200
+
+.onChanged { value in
+    let translation = CGPoint(x: value.translation.width, y: value.translation.height)
+    let distance = sqrt(translation.x * translation.x + translation.y * translation.y)
+    
+    if distance > maxDrag {
+        let rubberband = rubberband(value: distance, range: 0...maxDrag, interval: maxDrag)
+        let scale = rubberband / distance
+        offsetAnimator.target = CGPoint(x: translation.x * scale, y: translation.y * scale)
+    } else {
+        offsetAnimator.target = translation
+    }
+    
+    offsetAnimator.mode = .nonAnimated
+    offsetAnimator.start()
+}
+```
+
+## Limitations
+
+Be aware of these constraints when using Wave in SwiftUI:
+
+1. **No automatic view property animation** - You must manually wire `SpringAnimator` to `@State` variables
+2. **Gesture velocity requires reflection** - SwiftUI doesn't officially expose gesture velocity
+3. **No built-in transitions** - Wave focuses on property animation, not view transitions
+4. **Manual cleanup** - Remember to invalidate animators when views disappear
+
+## See also
+
+- [Interactive gestures](/examples/interactive-gestures) - Gesture patterns that work in both UIKit and SwiftUI
+- [SpringAnimator](/api/spring-animator) - Full property-based API documentation
+- [Springs](/concepts/springs) - Tuning spring parameters
+- [Picture-in-picture](/examples/picture-in-picture) - UIKit gesture example for comparison

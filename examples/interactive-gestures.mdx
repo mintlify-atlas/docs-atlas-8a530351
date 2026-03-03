@@ -1,0 +1,366 @@
+---
+title: Interactive gesture animations
+description: Create responsive, gesture-driven animations with continuous velocity tracking and natural throw physics
+---
+
+Interactive gestures are animations that follow user input in real-time. Wave excels at these interactions by allowing you to continuously update animation targets while preserving velocity, creating fluid, responsive experiences.
+
+## Grid drag example
+
+This example demonstrates dragging views with dynamic scale based on vertical position, similar to iOS's app icon rearrangement:
+
+```swift GridViewController.swift
+import UIKit
+import Wave
+
+class GridViewController: UIViewController {
+    
+    let dampingSlider = UISlider()
+    let responseSlider = UISlider()
+    
+    var sliderSpring: Spring {
+        Spring(
+            dampingRatio: Double(dampingSlider.value),
+            response: Double(responseSlider.value)
+        )
+    }
+    
+    @objc
+    func handlePanWithBlock(sender: UIPanGestureRecognizer) {
+        guard let draggedView = sender.view as? Box else {
+            return
+        }
+        
+        draggedView.superview?.bringSubviewToFront(draggedView)
+        
+        let touchLocation = sender.location(in: view)
+        let touchVelocity = sender.velocity(in: view)
+        
+        switch sender.state {
+        case .began, .changed:
+            // Map the touch's Y position to a scale value (0.2 to 2.5)
+            let scale = mapRange(touchLocation.y, 0, view.bounds.size.height, 0.2, 2.5)
+            
+            let interactiveSpring = Spring(dampingRatio: 1.0, response: 0.3)
+            
+            Wave.animate(withSpring: interactiveSpring) {
+                draggedView.animator.center = touchLocation
+                draggedView.animator.scale = CGPoint(x: scale, y: scale)
+            }
+            
+        case .ended, .cancelled:
+            Wave.animate(withSpring: sliderSpring, gestureVelocity: touchVelocity) {
+                draggedView.animator.center = draggedView.originCenter
+                draggedView.animator.scale = CGPoint(x: 1, y: 1)
+            } completion: { finished, retargeted in
+                print("[Ended] completion: finished: \(finished), retargeted: \(retargeted)")
+            }
+            
+        default:
+            break
+        }
+    }
+}
+```
+
+## Key patterns
+
+<Steps>
+
+<Step title="Use tight springs for tracking">
+
+During active dragging (`.began` and `.changed` states), use a critically damped spring with low response:
+
+```swift
+let interactiveSpring = Spring(dampingRatio: 1.0, response: 0.3)
+
+Wave.animate(withSpring: interactiveSpring) {
+    view.animator.center = touchLocation
+}
+```
+
+<Note>
+A `dampingRatio` of `1.0` (critically damped) ensures no oscillation during tracking. The low `response` of `0.3` makes the animation fast and responsive.
+</Note>
+
+</Step>
+
+<Step title="Inject velocity on release">
+
+When the gesture ends, capture the lift-off velocity:
+
+```swift
+case .ended, .cancelled:
+    let touchVelocity = sender.velocity(in: view)
+    
+    Wave.animate(withSpring: animatedSpring, gestureVelocity: touchVelocity) {
+        view.animator.center = originalPosition
+        view.animator.scale = CGPoint(x: 1, y: 1)
+    }
+```
+
+The `gestureVelocity` parameter ensures the throw animation feels natural and continuous.
+
+</Step>
+
+<Step title="Animate multiple properties simultaneously">
+
+Wave can animate multiple properties in a single block:
+
+```swift
+Wave.animate(withSpring: spring) {
+    view.animator.center = targetCenter
+    view.animator.scale = targetScale
+    view.animator.backgroundColor = .systemBlue
+    view.animator.cornerRadius = 20
+}
+```
+
+All properties animate with the same spring configuration and share gesture velocity.
+
+</Step>
+
+<Step title="Use completion handlers">
+
+Track animation lifecycle with completion blocks:
+
+```swift
+Wave.animate(withSpring: spring) {
+    view.animator.center = target
+} completion: { finished, retargeted in
+    if finished {
+        print("Animation completed successfully")
+    }
+    if retargeted {
+        print("Animation was interrupted and retargeted")
+    }
+}
+```
+
+- `finished`: `true` if the animation reached its target without interruption
+- `retargeted`: `true` if the animation's target was changed mid-flight
+
+</Step>
+
+</Steps>
+
+## Sheet presentation example
+
+Implement a draggable sheet with progress-based layout:
+
+```swift SheetViewController.swift
+class SheetViewController: UIViewController {
+    
+    let sheetView = SheetView()
+    
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.2)
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+    
+    lazy var sheetPresentationAnimator = SpringAnimator<CGFloat>(spring: animatedSpring)
+    
+    var sheetPresentationProgress: CGFloat = 0 {
+        didSet {
+            self.layoutSheet(withPresentationProgress: sheetPresentationProgress)
+        }
+    }
+    
+    override func viewDidLoad() {
+        view.addSubview(sheetView)
+        sheetView.addGestureRecognizer(
+            InstantPanGestureRecognizer(target: self, action: #selector(handlePan(sender:)))
+        )
+        
+        // `0` progress represents the docked/minimized state of the sheet.
+        // `1.0` represents the fully-presented state.
+        self.sheetPresentationProgress = 0
+        sheetPresentationAnimator.value = self.sheetPresentationProgress
+        
+        sheetPresentationAnimator.valueChanged = { [weak self] newProgress in
+            self?.sheetPresentationProgress = newProgress
+        }
+    }
+    
+    func layoutSheet(withPresentationProgress progress: CGFloat) {
+        let sheetHeight = mapRange(progress, 0, 1, fullyCollapsedHeight, fullyPresentedHeight)
+        
+        let collapsedMargin = 80.0
+        let presentedMargin = 40.0
+        
+        let sheetOriginX = mapRange(progress, 0, 1, collapsedMargin / 2.0, presentedMargin / 2.0)
+        let sheetWidth = mapRange(progress, 0, 1, view.bounds.width - collapsedMargin, view.bounds.size.width - presentedMargin)
+        
+        sheetView.frame = CGRect(
+            x: sheetOriginX,
+            y: view.bounds.height - sheetHeight,
+            width: sheetWidth,
+            height: sheetHeight
+        )
+    }
+}
+```
+
+### Gesture handling for sheets
+
+```swift SheetViewController.swift
+var initialGestureAnimationProgress: CGFloat = 0
+
+var fullyCollapsedHeight: CGFloat { 200 }
+var fullyPresentedHeight: CGFloat { view.bounds.height * 0.9 }
+
+func progressForTranslation(_ translation: CGFloat) -> CGFloat {
+    (-translation / (fullyPresentedHeight - fullyCollapsedHeight)) + initialGestureAnimationProgress
+}
+
+@objc
+private func handlePan(sender: UIPanGestureRecognizer) {
+    let translation = sender.translation(in: view)
+    let velocity = sender.velocity(in: view)
+    
+    if sender.state == .began {
+        initialGestureAnimationProgress = sheetPresentationProgress
+    }
+    
+    if sender.state == .began || sender.state == .changed {
+        sheetPresentationAnimator.spring = .defaultNonAnimated
+        
+        let targetProgress = progressForTranslation(translation.y)
+        sheetPresentationAnimator.target = targetProgress
+        
+    } else if sender.state == .ended || sender.state == .cancelled {
+        let normalizedVelocity = -velocity.y / (fullyPresentedHeight - fullyCollapsedHeight)
+        let projectedTranslation = project(value: translation.y, velocity: velocity.y)
+        let projectedProgress = progressForTranslation(projectedTranslation)
+        let targetProgress = (projectedProgress > 0.5) ? 1.0 : 0.0
+        
+        sheetPresentationAnimator.spring = Spring(dampingRatio: 0.8, response: 0.7)
+        sheetPresentationAnimator.target = targetProgress
+        sheetPresentationAnimator.velocity = normalizedVelocity
+    }
+    
+    sheetPresentationAnimator.start()
+}
+```
+
+<Tip>
+This example uses a property-based animator with a scalar `CGFloat` to animate a progress value from 0 to 1. The `valueChanged` callback drives the sheet's layout.
+</Tip>
+
+## Using `.defaultNonAnimated` for tracking
+
+During active dragging, use `.defaultNonAnimated` to make the view snap to the target without animation:
+
+```swift
+case .began, .changed:
+    sheetPresentationAnimator.spring = .defaultNonAnimated
+    sheetPresentationAnimator.target = newTarget
+    sheetPresentationAnimator.start()
+```
+
+This is equivalent to setting the spring's `response` to `0`, making updates instantaneous.
+
+## Helper utilities
+
+Wave provides utility functions for common gesture calculations:
+
+### Projecting final position
+
+```swift
+// Project where a point will land based on velocity
+let projectedPosition = project(point: currentPosition, velocity: velocity)
+
+// Project a scalar value
+let projectedValue = project(value: currentValue, velocity: velocity)
+```
+
+### Mapping ranges
+
+```swift
+// Map a value from one range to another
+let scale = mapRange(touchY, 0, screenHeight, 0.2, 2.5)
+
+// With clipping
+let clippedScale = mapRange(touchY, 0, screenHeight, 0.2, 2.5, clip: true)
+```
+
+### Clipping values
+
+```swift
+// Clip to a custom range
+let clipped = clip(value: position, lower: 0, upper: maxPosition)
+
+// Clip to [0, 1]
+let normalized = clipUnit(value: progress)
+```
+
+## Animation modes
+
+Control how animations execute with `AnimationMode`:
+
+```swift
+let animator = SpringAnimator<CGPoint>(spring: spring)
+
+// Animate with spring physics (default)
+animator.mode = .animated
+animator.start()
+
+// Snap instantly to target
+animator.mode = .nonAnimated
+animator.start()
+```
+
+This is useful when you want the same animator to behave differently during dragging vs. release.
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Choose appropriate spring values">
+    - **Interactive dragging**: `dampingRatio: 1.0, response: 0.2-0.3`
+    - **Release animations**: `dampingRatio: 0.65-0.8, response: 0.7-0.9`
+    - **Critically damped**: Use `dampingRatio: 1.0` for no overshoot
+    - **Bouncy**: Use `dampingRatio: 0.6-0.75` for slight bounce
+  </Accordion>
+  
+  <Accordion title="Always capture gesture velocity">
+    Inject the gesture's lift-off velocity for natural throws:
+    
+    ```swift
+    let velocity = sender.velocity(in: view)
+    
+    Wave.animate(withSpring: spring, gestureVelocity: velocity) {
+        view.animator.center = target
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use property-based for scalar animations">
+    When animating progress values, percentages, or custom properties, use `SpringAnimator`:
+    
+    ```swift
+    let progressAnimator = SpringAnimator<CGFloat>(spring: spring)
+    progressAnimator.valueChanged = { progress in
+        // Update your UI based on progress
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle retargeting gracefully">
+    Check the `retargeted` flag in completion handlers to distinguish between finished and interrupted animations:
+    
+    ```swift
+    Wave.animate(withSpring: spring) {
+        view.animator.center = target
+    } completion: { finished, retargeted in
+        if finished && !retargeted {
+            // Only run cleanup if animation truly finished
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See also
+
+- [Picture-in-picture](/examples/picture-in-picture) - Advanced retargeting example
+- [SwiftUI integration](/examples/swiftui-integration) - Using gestures in SwiftUI
+- [SpringAnimator](/api/spring-animator) - Full property-based API reference
+- [Springs](/concepts/springs) - Understanding spring parameters

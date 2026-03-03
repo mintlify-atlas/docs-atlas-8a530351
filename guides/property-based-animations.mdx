@@ -1,0 +1,399 @@
+---
+title: Property-based animations
+description: Use SpringAnimator for fine-grained control over individual property animations
+---
+
+While Wave's block-based API is convenient for most use cases, the `SpringAnimator<T>` class provides a lower-level API for animating individual properties with precise control over timing, retargeting, and lifecycle events.
+
+## When to use SpringAnimator
+
+Use `SpringAnimator` when you need:
+
+- Fine-grained control over a single animating value
+- Access to intermediate animation values
+- The ability to retarget animations mid-flight
+- Custom value types beyond standard UIView/CALayer properties
+- Manual control over animation lifecycle (start, stop, reset)
+
+<Tip>
+For most UI animations, the block-based API is simpler. Use `SpringAnimator` when you need its specific capabilities.
+</Tip>
+
+## Basic usage
+
+Create a `SpringAnimator` with a spring configuration, initial value, and target:
+
+```swift
+let animator = SpringAnimator<CGFloat>(
+    spring: Spring(dampingRatio: 0.8, response: 0.6),
+    value: 0.0,
+    target: 1.0
+)
+
+animator.valueChanged = { currentValue in
+    // Use the animated value to update your UI
+    print("Current value: \(currentValue)")
+}
+
+animator.start()
+```
+
+## Supported types
+
+`SpringAnimator` works with any type conforming to `SpringInterpolatable`. Built-in support includes:
+
+- `CGFloat` - Single floating-point values
+- `CGPoint` - 2D coordinates
+- `CGSize` - Width and height
+- `CGRect` - Rectangles
+- `UIColor` / `CGColor` - Colors (via internal `RGBAComponents`)
+
+## Core properties
+
+### Value and target
+
+<ParamField path="value" type="T.ValueType?">
+  The current value of the animation. Updates automatically as the animation runs. Must be set to a non-nil value before starting.
+</ParamField>
+
+<ParamField path="target" type="T.ValueType?">
+  The target value the animation is moving toward. Can be changed while the animation is running to retarget.
+</ParamField>
+
+```swift
+let positionAnimator = SpringAnimator<CGPoint>(
+    spring: Spring(dampingRatio: 0.7, response: 0.5),
+    value: view.center,
+    target: CGPoint(x: 200, y: 300)
+)
+```
+
+### Velocity
+
+<ParamField path="velocity" type="T.VelocityType">
+  The current velocity of the animation. Set this before starting to inject initial velocity (e.g., from a gesture).
+</ParamField>
+
+```swift
+animator.velocity = gestureVelocity
+animator.start()
+```
+
+### Spring configuration
+
+<ParamField path="spring" type="Spring">
+  The spring model determining the animation's motion characteristics. Can be modified at any time.
+</ParamField>
+
+```swift
+// Start with tight spring for interactive feel
+animator.spring = Spring(dampingRatio: 0.8, response: 0.2)
+
+// Later, switch to looser spring for final animation
+animator.spring = Spring(dampingRatio: 0.68, response: 0.8)
+```
+
+## Animation lifecycle
+
+### Starting animations
+
+Start the animation with an optional delay:
+
+```swift
+animator.start()  // Start immediately
+animator.start(afterDelay: 0.5)  // Start after 0.5 seconds
+```
+
+<Warning>
+Both `value` and `target` must be non-nil before calling `start()`, or the app will crash with a precondition failure.
+</Warning>
+
+### Stopping animations
+
+Stop animations immediately or smoothly:
+
+```swift
+// Stop immediately at current value
+animator.stop(immediately: true)
+
+// Smoothly animate to current value (cancels movement to target)
+animator.stop(immediately: false)
+```
+
+### Animation state
+
+The `state` property tracks the animation lifecycle:
+
+```swift
+switch animator.state {
+case .inactive:
+    print("Animation hasn't started or has been reset")
+case .running:
+    print("Animation is currently executing")
+case .ended:
+    print("Animation completed or was stopped")
+}
+```
+
+## Value change callbacks
+
+The `valueChanged` closure receives the current animated value on each frame:
+
+```swift
+let scaleAnimator = SpringAnimator<CGFloat>(
+    spring: Spring(dampingRatio: 0.6, response: 0.4),
+    value: 1.0,
+    target: 1.5
+)
+
+scaleAnimator.valueChanged = { [weak view] scale in
+    view?.transform = CGAffineTransform(scaleX: scale, y: scale)
+}
+
+scaleAnimator.start()
+```
+
+<Note>
+Use `[weak self]` or `[weak view]` in closures to avoid retain cycles.
+</Note>
+
+## Retargeting animations
+
+Change the `target` property while the animation is running to smoothly retarget:
+
+```swift
+let animator = SpringAnimator<CGPoint>(
+    spring: Spring(dampingRatio: 0.8, response: 0.6),
+    value: CGPoint(x: 0, y: 0),
+    target: CGPoint(x: 100, y: 100)
+)
+
+animator.valueChanged = { [weak view] position in
+    view?.center = position
+}
+
+animator.start()
+
+// Later, while animation is running
+animator.target = CGPoint(x: 200, y: 50)  // Smoothly retargets
+```
+
+When retargeting occurs, the completion handler is called with a `.retargeted` event:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished(let finalValue):
+        print("Animation completed at: \(finalValue)")
+    case .retargeted(let from, let to):
+        print("Retargeted from \(from) to \(to)")
+    }
+}
+```
+
+## Completion events
+
+The `completion` closure handles two event types:
+
+### Finished event
+
+Called when the animation naturally completes:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished(at: let finalValue):
+        print("Animation finished at: \(finalValue)")
+    case .retargeted:
+        break
+    }
+}
+```
+
+### Retargeted event
+
+Called when the `target` changes during animation:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished:
+        break
+    case .retargeted(from: let oldTarget, to: let newTarget):
+        print("Retargeted from \(oldTarget) to \(newTarget)")
+    }
+}
+```
+
+## Animation modes
+
+Set the `mode` property to control animation behavior:
+
+```swift
+// Animated (default)
+animator.mode = .animated
+
+// Snap to target immediately
+animator.mode = .nonAnimated
+```
+
+## Advanced features
+
+### Integralizing values
+
+Enable `integralizeValues` to snap values to pixel boundaries, preventing aliasing:
+
+```swift
+let positionAnimator = SpringAnimator<CGPoint>(
+    spring: spring,
+    value: startPoint,
+    target: endPoint
+)
+
+positionAnimator.integralizeValues = true  // Snap to pixel boundaries
+```
+
+<Warning>
+Only use `integralizeValues` for position/geometry values. Don't enable it for continuous values like opacity or color components.
+</Warning>
+
+### Settling time
+
+Query the estimated duration based on the spring configuration:
+
+```swift
+let duration = animator.settlingTime
+print("Animation will take approximately \(duration) seconds")
+```
+
+<Tip>
+This is useful for debugging but should not be used to determine animation progress. The animation may finish slightly earlier or later than `settlingTime`.
+</Tip>
+
+### Running time
+
+Get the time elapsed since the animation started:
+
+```swift
+if let elapsed = animator.runningTime {
+    print("Animation has been running for \(elapsed) seconds")
+}
+```
+
+## Real-world example
+
+Here's a complete example from Wave's sample app showing a sheet presentation animator:
+
+```swift
+class SheetViewController: UIViewController {
+    let sheetView = SheetView()
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+    
+    lazy var sheetPresentationAnimator = SpringAnimator<CGFloat>(
+        spring: animatedSpring
+    )
+    
+    var sheetPresentationProgress: CGFloat = 0 {
+        didSet {
+            // Layout sheet based on animated progress value
+            layoutSheet(withPresentationProgress: sheetPresentationProgress)
+        }
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        // Set initial values
+        sheetPresentationProgress = 0
+        sheetPresentationAnimator.value = 0.0
+        
+        // Update UI on each frame
+        sheetPresentationAnimator.valueChanged = { [weak self] newProgress in
+            self?.sheetPresentationProgress = newProgress
+        }
+    }
+    
+    func presentSheet() {
+        sheetPresentationAnimator.target = 1.0
+        sheetPresentationAnimator.start()
+    }
+    
+    func dismissSheet() {
+        sheetPresentationAnimator.target = 0.0
+        sheetPresentationAnimator.start()
+    }
+}
+```
+
+## Combining multiple animators
+
+You can run multiple `SpringAnimator` instances in parallel:
+
+```swift
+let positionAnimator = SpringAnimator<CGPoint>(
+    spring: Spring(dampingRatio: 0.8, response: 0.5),
+    value: view.center,
+    target: destinationPoint
+)
+
+let scaleAnimator = SpringAnimator<CGFloat>(
+    spring: Spring(dampingRatio: 0.6, response: 0.4),
+    value: 1.0,
+    target: 1.5
+)
+
+positionAnimator.valueChanged = { [weak view] center in
+    view?.center = center
+}
+
+scaleAnimator.valueChanged = { [weak view] scale in
+    view?.transform = CGAffineTransform(scaleX: scale, y: scale)
+}
+
+positionAnimator.start()
+scaleAnimator.start()
+```
+
+## Best practices
+
+<Steps>
+  <Step title="Initialize values before starting">
+    Always set both `value` and `target` to non-nil values before calling `start()`.
+  </Step>
+  
+  <Step title="Use weak references in closures">
+    Prevent retain cycles by using `[weak self]` or `[weak view]` in `valueChanged` and `completion` closures.
+  </Step>
+  
+  <Step title="Choose the right type">
+    Use the most specific type for your animation (`CGFloat` for single values, `CGPoint` for positions).
+  </Step>
+  
+  <Step title="Handle both completion events">
+    Always handle both `.finished` and `.retargeted` events in your completion handler.
+  </Step>
+  
+  <Step title="Avoid settlingTime for logic">
+    Use `settlingTime` for debugging only, not for determining when animations complete.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Block-based animations" icon="cube" href="/guides/block-based-animations">
+    Learn about the simpler block-based API
+  </Card>
+  
+  <Card title="Gesture integration" icon="hand-pointer" href="/guides/gesture-integration">
+    Inject gesture velocities into SpringAnimator
+  </Card>
+  
+  <Card title="Completion handlers" icon="flag-checkered" href="/guides/completion-handlers">
+    Deep dive into animation lifecycle events
+  </Card>
+  
+  <Card title="Spring configuration" icon="sliders" href="/concepts/springs">
+    Tune springs for different animation feels
+  </Card>
+</CardGroup>

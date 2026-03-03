@@ -1,0 +1,218 @@
+---
+title: SpringInterpolatable
+description: A protocol that defines types that can be animated using spring physics
+---
+
+`SpringInterpolatable` is a protocol that enables custom types to be animated with spring-based physics in Wave. Types conforming to this protocol can calculate their values over time based on spring dynamics.
+
+## Protocol definition
+
+```swift
+public protocol SpringInterpolatable: Equatable {
+    associatedtype ValueType: SpringInterpolatable
+    associatedtype VelocityType: VelocityProviding
+
+    var scaledIntegral: Self { get }
+
+    static func updateValue(
+        spring: Spring,
+        value: ValueType,
+        target: ValueType,
+        velocity: VelocityType,
+        dt: TimeInterval
+    ) -> (value: ValueType, velocity: VelocityType)
+}
+```
+
+## Associated types
+
+<ParamField path="ValueType" type="SpringInterpolatable">
+  The value type that will be interpolated. Must itself conform to `SpringInterpolatable`.
+</ParamField>
+
+<ParamField path="VelocityType" type="VelocityProviding">
+  The type used to represent velocity during spring calculations. Must conform to `VelocityProviding`.
+</ParamField>
+
+## Required properties
+
+<ParamField path="scaledIntegral" type="Self">
+  Returns a value rounded to the nearest pixel boundary, taking into account the device's display scale. This prevents subpixel rendering artifacts during animation.
+  
+  For `CGFloat`, this is calculated as `floor(self * scale) / scale` where `scale` is the screen's scale factor.
+</ParamField>
+
+## Required methods
+
+<ParamField path="updateValue(spring:value:target:velocity:dt:)" type="static func">
+  Calculates the next value and velocity for a spring animation step.
+  
+  **Parameters:**
+  - `spring`: The spring configuration defining the animation physics
+  - `value`: The current value
+  - `target`: The target value to animate towards
+  - `velocity`: The current velocity
+  - `dt`: The time interval (delta time) for this step
+  
+  **Returns:** A tuple containing the new value and velocity for the next frame
+  
+  **Implementation details:**
+  
+  The method uses spring physics equations:
+  1. Calculate displacement: `value - target`
+  2. Calculate spring force: `-spring.stiffness * displacement`
+  3. Calculate damping force: `spring.dampingCoefficient * velocity`
+  4. Calculate total force: `springForce - dampingForce`
+  5. Calculate acceleration: `force / spring.mass`
+  6. Update velocity: `velocity + (acceleration * dt)`
+  7. Update value: `value + (newVelocity * dt)`
+</ParamField>
+
+## Built-in conformances
+
+Wave provides `SpringInterpolatable` conformance for the following Core Graphics types:
+
+### CGFloat
+
+The fundamental building block for spring animations. All other types build upon `CGFloat`'s implementation.
+
+```swift
+extension CGFloat: SpringInterpolatable, VelocityProviding {
+    public typealias ValueType = CGFloat
+    public typealias VelocityType = CGFloat
+}
+```
+
+### CGPoint
+
+Animates 2D points by independently animating `x` and `y` components.
+
+```swift
+extension CGPoint: SpringInterpolatable, VelocityProviding {
+    public typealias ValueType = CGPoint
+    public typealias VelocityType = CGPoint
+}
+```
+
+**Example:**
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.8, response: 0.3)) {
+    view.animator.center = CGPoint(x: 200, y: 300)
+}
+```
+
+### CGSize
+
+Animates sizes by independently animating `width` and `height` components.
+
+```swift
+extension CGSize: SpringInterpolatable, VelocityProviding {
+    public typealias ValueType = CGSize
+    public typealias VelocityType = CGSize
+}
+```
+
+**Example:**
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.7, response: 0.4)) {
+    view.animator.bounds.size = CGSize(width: 100, height: 100)
+}
+```
+
+### CGRect
+
+Animates rectangles by independently animating origin and size components.
+
+```swift
+extension CGRect: SpringInterpolatable, VelocityProviding {
+    public typealias ValueType = CGRect
+    public typealias VelocityType = CGRect
+}
+```
+
+**Example:**
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.9, response: 0.5)) {
+    view.animator.frame = CGRect(x: 50, y: 50, width: 200, height: 200)
+}
+```
+
+## VelocityProviding protocol
+
+Types used as `VelocityType` must conform to the `VelocityProviding` protocol:
+
+```swift
+public protocol VelocityProviding {
+    static var zero: Self { get }
+}
+```
+
+This protocol requires a `zero` value representing no velocity, which is used as the initial velocity for animations.
+
+## Implementing custom conformances
+
+To make a custom type animatable with Wave, implement `SpringInterpolatable`:
+
+```swift
+struct MyVector: SpringInterpolatable, VelocityProviding, Equatable {
+    var x: CGFloat
+    var y: CGFloat
+    var z: CGFloat
+    
+    typealias ValueType = MyVector
+    typealias VelocityType = MyVector
+    
+    var scaledIntegral: MyVector {
+        MyVector(
+            x: x.scaledIntegral,
+            y: y.scaledIntegral,
+            z: z.scaledIntegral
+        )
+    }
+    
+    static var zero: MyVector {
+        MyVector(x: 0, y: 0, z: 0)
+    }
+    
+    static func updateValue(
+        spring: Spring,
+        value: MyVector,
+        target: MyVector,
+        velocity: MyVector,
+        dt: TimeInterval
+    ) -> (value: MyVector, velocity: MyVector) {
+        let (newX, newVelX) = CGFloat.updateValue(
+            spring: spring,
+            value: value.x,
+            target: target.x,
+            velocity: velocity.x,
+            dt: dt
+        )
+        let (newY, newVelY) = CGFloat.updateValue(
+            spring: spring,
+            value: value.y,
+            target: target.y,
+            velocity: velocity.y,
+            dt: dt
+        )
+        let (newZ, newVelZ) = CGFloat.updateValue(
+            spring: spring,
+            value: value.z,
+            target: target.z,
+            velocity: velocity.z,
+            dt: dt
+        )
+        
+        return (
+            value: MyVector(x: newX, y: newY, z: newZ),
+            velocity: MyVector(x: newVelX, y: newVelY, z: newVelZ)
+        )
+    }
+}
+```
+
+## See also
+
+- [Spring](/api/spring) - Configure spring physics parameters
+- [AnimationMode](/api/animation-mode) - Control whether animations are animated or immediate
+- [Wave.animate](/api/wave) - Perform spring-based animations

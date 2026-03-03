@@ -1,0 +1,529 @@
+---
+title: Gesture integration
+description: Create fluid interactions by injecting gesture velocities into spring animations
+---
+
+One of Wave's most powerful features is its ability to seamlessly integrate gesture-driven interactions with spring animations. By injecting the velocity from a gesture recognizer into an animation, you create natural, physics-based motion that feels responsive and fluid.
+
+## Why velocity matters
+
+When a user drags a view and releases it, the animation should continue with the momentum from the gesture. Without velocity injection, the view would abruptly start from zero velocity, creating a jarring, unnatural feel.
+
+Wave solves this by accepting gesture velocities and using them as the initial velocity for spring animations.
+
+## Block-based API with gestures
+
+The `Wave.animate(withSpring:)` method accepts a `gestureVelocity` parameter:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    gestureVelocity: velocity,  // CGPoint from gesture recognizer
+    animations: {
+        view.animator.center = targetPosition
+    }
+)
+```
+
+### Complete pan gesture example
+
+Here's a full implementation of a draggable Picture-in-Picture view from Wave's sample app:
+
+```swift
+class PictureInPictureViewController: UIViewController {
+    let pipView = UIView(frame: CGRect(x: 0, y: 0, width: 120, height: 80))
+    
+    // Tight spring for tracking finger movement
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.26)
+    
+    // Looser spring for final animation
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+    
+    private var initialTouchLocation: CGPoint = .zero
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        let panGesture = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handlePan(sender:))
+        )
+        pipView.addGestureRecognizer(panGesture)
+        view.addSubview(pipView)
+    }
+    
+    @objc
+    private func handlePan(sender: UIPanGestureRecognizer) {
+        let touchLocation = sender.location(in: view)
+        let touchTranslation = sender.translation(in: view)
+        let touchVelocity = sender.velocity(in: view)
+        
+        switch sender.state {
+        case .began:
+            initialTouchLocation = pipView.center
+            
+        case .changed:
+            let targetCenter = CGPoint(
+                x: initialTouchLocation.x + touchTranslation.x,
+                y: initialTouchLocation.y + touchTranslation.y
+            )
+            
+            // Use interactive spring for tight tracking
+            Wave.animate(withSpring: interactiveSpring) {
+                pipView.animator.center = targetCenter
+            }
+            
+        case .ended, .cancelled:
+            let destination = calculateDestination(
+                position: touchLocation,
+                velocity: touchVelocity
+            )
+            
+            // Inject velocity for smooth handoff
+            Wave.animate(
+                withSpring: animatedSpring,
+                gestureVelocity: touchVelocity
+            ) {
+                pipView.animator.center = destination
+            }
+            
+        default:
+            break
+        }
+    }
+    
+    private func calculateDestination(
+        position: CGPoint,
+        velocity: CGPoint
+    ) -> CGPoint {
+        // Your custom logic to determine final position
+        // For example, snapping to screen corners
+        return snapToNearestCorner(position: position, velocity: velocity)
+    }
+}
+```
+
+## Property-based API with gestures
+
+With `SpringAnimator`, set the `velocity` property before starting:
+
+```swift
+let animator = SpringAnimator<CGPoint>(
+    spring: Spring(dampingRatio: 0.8, response: 0.7),
+    value: view.center,
+    target: destinationPoint
+)
+
+// Inject gesture velocity
+animator.velocity = gestureVelocity
+
+animator.valueChanged = { [weak view] position in
+    view?.center = position
+}
+
+animator.start()
+```
+
+### Sheet presentation example
+
+Here's a complete sheet presentation controller from Wave's sample app:
+
+```swift
+class SheetViewController: UIViewController {
+    let sheetView = SheetView()
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.2)
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+    
+    lazy var sheetPresentationAnimator = SpringAnimator<CGFloat>(
+        spring: animatedSpring
+    )
+    
+    var sheetPresentationProgress: CGFloat = 0 {
+        didSet {
+            layoutSheet(withPresentationProgress: sheetPresentationProgress)
+        }
+    }
+    
+    var initialGestureAnimationProgress: CGFloat = 0
+    
+    var fullyCollapsedHeight: CGFloat { 200 }
+    var fullyPresentedHeight: CGFloat { view.bounds.height * 0.9 }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        view.addSubview(sheetView)
+        
+        let panGesture = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handlePan(sender:))
+        )
+        sheetView.addGestureRecognizer(panGesture)
+        
+        sheetPresentationProgress = 0
+        sheetPresentationAnimator.value = 0.0
+        
+        sheetPresentationAnimator.valueChanged = { [weak self] progress in
+            self?.sheetPresentationProgress = progress
+        }
+    }
+    
+    @objc
+    private func handlePan(sender: UIPanGestureRecognizer) {
+        let translation = sender.translation(in: view)
+        let velocity = sender.velocity(in: view)
+        
+        switch sender.state {
+        case .began:
+            initialGestureAnimationProgress = sheetPresentationProgress
+            
+        case .changed:
+            // Use non-animated spring to track gesture
+            sheetPresentationAnimator.spring = .defaultNonAnimated
+            
+            let targetProgress = progressForTranslation(translation.y)
+            sheetPresentationAnimator.target = targetProgress
+            sheetPresentationAnimator.start()
+            
+        case .ended, .cancelled:
+            // Convert velocity to normalized space
+            let normalizedVelocity = -velocity.y / (
+                fullyPresentedHeight - fullyCollapsedHeight
+            )
+            
+            // Project final position based on velocity
+            let projectedTranslation = project(
+                value: translation.y,
+                velocity: velocity.y
+            )
+            let projectedProgress = progressForTranslation(projectedTranslation)
+            let targetProgress = (projectedProgress > 0.5) ? 1.0 : 0.0
+            
+            // Animate with injected velocity
+            sheetPresentationAnimator.spring = Spring(
+                dampingRatio: 0.8,
+                response: 0.7
+            )
+            sheetPresentationAnimator.target = targetProgress
+            sheetPresentationAnimator.velocity = normalizedVelocity
+            sheetPresentationAnimator.start()
+            
+        default:
+            break
+        }
+    }
+    
+    func progressForTranslation(_ translation: CGFloat) -> CGFloat {
+        let range = fullyPresentedHeight - fullyCollapsedHeight
+        return (-translation / range) + initialGestureAnimationProgress
+    }
+    
+    func layoutSheet(withPresentationProgress progress: CGFloat) {
+        let sheetHeight = mapRange(
+            progress, 0, 1,
+            fullyCollapsedHeight, fullyPresentedHeight
+        )
+        
+        let collapsedMargin = 80.0
+        let presentedMargin = 40.0
+        
+        let sheetOriginX = mapRange(
+            progress, 0, 1,
+            collapsedMargin / 2.0, presentedMargin / 2.0
+        )
+        let sheetWidth = mapRange(
+            progress, 0, 1,
+            view.bounds.width - collapsedMargin,
+            view.bounds.width - presentedMargin
+        )
+        
+        sheetView.frame = CGRect(
+            x: sheetOriginX,
+            y: view.bounds.height - sheetHeight,
+            width: sheetWidth,
+            height: sheetHeight
+        )
+    }
+}
+```
+
+## Understanding velocity
+
+### Gesture velocity units
+
+Gesture recognizers return velocity in points per second:
+
+```swift
+let velocity = panGesture.velocity(in: view)
+// velocity.x: horizontal points per second
+// velocity.y: vertical points per second
+```
+
+### Normalizing velocity
+
+When animating normalized values (like progress from 0 to 1), convert the velocity to the same space:
+
+```swift
+// Gesture velocity is in points per second
+let gestureVelocity = panGesture.velocity(in: view).y
+
+// Convert to normalized velocity (0-1 per second)
+let range = maximumValue - minimumValue
+let normalizedVelocity = gestureVelocity / range
+
+animator.velocity = normalizedVelocity
+```
+
+### Direction matters
+
+Pay attention to velocity direction. For vertical gestures, you may need to negate the y-component:
+
+```swift
+// Dragging down is positive y, but might decrease your progress value
+let normalizedVelocity = -velocity.y / range
+```
+
+## Two-spring pattern
+
+The most common pattern uses two different springs:
+
+<Steps>
+  <Step title="Interactive spring (tight)">
+    Use a low `response` value (0.2-0.3) for tracking finger movement. This makes the view follow closely without lag.
+    
+    ```swift
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.2)
+    ```
+  </Step>
+  
+  <Step title="Animated spring (loose)">
+    Use a higher `response` value (0.6-0.8) for the final animation after gesture ends. This creates satisfying, natural motion.
+    
+    ```swift
+    let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+    ```
+  </Step>
+</Steps>
+
+```swift
+switch panGesture.state {
+case .changed:
+    // Tight spring for tracking
+    Wave.animate(withSpring: interactiveSpring) {
+        view.animator.center = targetPosition
+    }
+    
+case .ended:
+    // Loose spring with velocity for final animation
+    Wave.animate(
+        withSpring: animatedSpring,
+        gestureVelocity: velocity
+    ) {
+        view.animator.center = finalPosition
+    }
+}
+```
+
+## Velocity projection
+
+Wave provides utility functions for projecting where a value will end up based on velocity:
+
+```swift
+// Project single value
+let projectedY = project(
+    value: currentY,
+    velocity: velocityY
+)
+
+// Project point
+let projectedPoint = project(
+    point: currentPoint,
+    velocity: velocityPoint
+)
+```
+
+Use projection to determine final snap positions:
+
+```swift
+case .ended:
+    let projectedPosition = project(
+        point: currentPosition,
+        velocity: gestureVelocity
+    )
+    
+    // Determine which corner to snap to based on projected position
+    let destination = nearestCorner(to: projectedPosition)
+    
+    Wave.animate(
+        withSpring: animatedSpring,
+        gestureVelocity: gestureVelocity
+    ) {
+        view.animator.center = destination
+    }
+```
+
+## Instant pan gesture recognizer
+
+Wave's sample app includes `InstantPanGestureRecognizer`, which begins immediately instead of waiting for minimum movement:
+
+```swift
+let instantPan = InstantPanGestureRecognizer(
+    target: self,
+    action: #selector(handlePan)
+)
+view.addGestureRecognizer(instantPan)
+```
+
+This creates more responsive interactions, especially for small draggable elements.
+
+## Retargeting during gestures
+
+Wave automatically handles retargeting when the user changes direction mid-gesture:
+
+```swift
+case .changed:
+    // Each frame potentially retargets the animation
+    Wave.animate(withSpring: interactiveSpring) {
+        view.animator.center = followPoint
+    }
+    // If followPoint changes direction, Wave smoothly retargets
+```
+
+No special code needed - Wave handles this automatically.
+
+## Multiple properties
+
+You can inject velocity into multiple properties, but ensure each velocity is in the correct coordinate space:
+
+```swift
+case .ended:
+    let velocity = panGesture.velocity(in: view)
+    
+    Wave.animate(
+        withSpring: animatedSpring,
+        gestureVelocity: velocity
+    ) {
+        // Position gets the full velocity
+        view.animator.center = destination
+        
+        // Other properties animated without velocity
+        view.animator.scale = CGPoint(x: 1.0, y: 1.0)
+        view.layer.animator.cornerRadius = 16
+    }
+```
+
+<Note>
+The `gestureVelocity` parameter only affects properties that use `CGPoint` values (like `center`, `origin`, etc.).
+</Note>
+
+## Best practices
+
+<Steps>
+  <Step title="Use two springs">
+    One tight spring for tracking, one loose spring for the final animation.
+  </Step>
+  
+  <Step title="Store initial state">
+    Capture the starting position/progress in `.began` to calculate deltas correctly.
+  </Step>
+  
+  <Step title="Normalize velocities">
+    Convert gesture velocity to match your animation value's coordinate space.
+  </Step>
+  
+  <Step title="Project final positions">
+    Use velocity projection to determine intelligent snap targets.
+  </Step>
+  
+  <Step title="Mind the direction">
+    Pay attention to whether increasing values move up or down, left or right.
+  </Step>
+  
+  <Step title="Test on device">
+    Gesture interactions feel different on real hardware vs. simulator.
+  </Step>
+</Steps>
+
+## Common patterns
+
+### Draggable card
+
+```swift
+@objc private func handlePan(sender: UIPanGestureRecognizer) {
+    let translation = sender.translation(in: view)
+    let velocity = sender.velocity(in: view)
+    
+    switch sender.state {
+    case .changed:
+        let targetCenter = CGPoint(
+            x: initialCenter.x + translation.x,
+            y: initialCenter.y + translation.y
+        )
+        Wave.animate(withSpring: interactiveSpring) {
+            cardView.animator.center = targetCenter
+        }
+        
+    case .ended:
+        Wave.animate(
+            withSpring: animatedSpring,
+            gestureVelocity: velocity
+        ) {
+            cardView.animator.center = originalPosition
+        }
+    }
+}
+```
+
+### Dismissible modal
+
+```swift
+@objc private func handlePan(sender: UIPanGestureRecognizer) {
+    let translation = sender.translation(in: view)
+    let velocity = sender.velocity(in: view)
+    
+    switch sender.state {
+    case .changed:
+        let offset = max(0, translation.y)  // Only allow downward drag
+        Wave.animate(withSpring: interactiveSpring) {
+            modalView.animator.origin = CGPoint(x: 0, y: offset)
+        }
+        
+    case .ended:
+        let shouldDismiss = translation.y > 100 || velocity.y > 500
+        let destination = shouldDismiss 
+            ? CGPoint(x: 0, y: view.bounds.height)
+            : CGPoint(x: 0, y: 0)
+        
+        Wave.animate(
+            withSpring: animatedSpring,
+            gestureVelocity: velocity
+        ) {
+            modalView.animator.origin = destination
+        } completion: { finished, _ in
+            if finished && shouldDismiss {
+                self.dismiss(animated: false)
+            }
+        }
+    }
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Block-based animations" icon="cube" href="/guides/block-based-animations">
+    Master the Wave.animate API
+  </Card>
+  
+  <Card title="Property-based animations" icon="code" href="/guides/property-based-animations">
+    Use SpringAnimator for custom animations
+  </Card>
+  
+  <Card title="Completion handlers" icon="flag-checkered" href="/guides/completion-handlers">
+    Handle animation lifecycle events
+  </Card>
+  
+  <Card title="Spring configuration" icon="sliders" href="/concepts/springs">
+    Choose the right spring parameters
+  </Card>
+</CardGroup>

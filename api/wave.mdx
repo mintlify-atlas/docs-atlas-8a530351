@@ -1,0 +1,107 @@
+---
+title: Wave
+description: The main entry point for creating spring-based animations in your iOS/macOS applications.
+---
+
+The `Wave` class provides a simple, block-based API for animating UIView and CALayer properties using physically-based spring animations.
+
+## Overview
+
+`Wave` is the primary class you'll use to create animations. It provides a static method that lets you animate view properties using spring physics, similar to UIKit's animation APIs but with more natural, physically-based motion.
+
+<Note>
+For animations to work correctly, you must set values on the view's `animator` property, not directly on the view itself. For example, use `myView.animator.alpha = 1.0` instead of `myView.alpha = 1.0`.
+</Note>
+
+## Methods
+
+### animate(withSpring:mode:delay:gestureVelocity:animations:completion:)
+
+Performs animations based on the `Spring` value provided.
+
+```swift
+public static func animate(
+    withSpring spring: Spring,
+    mode: AnimationMode = .animated,
+    delay: TimeInterval = 0,
+    gestureVelocity: CGPoint? = nil,
+    animations: (() -> Void),
+    completion: ((_ finished: Bool, _ retargeted: Bool) -> Void)? = nil
+)
+```
+
+<ParamField path="spring" type="Spring" required>
+  The `Spring` used to determine the timing curve and duration of the animation. See `Spring(dampingRatio:response:mass:)` for more information on how to choose relevant spring values.
+</ParamField>
+
+<ParamField path="mode" type="AnimationMode" default=".animated">
+  Determines if the `animations` block will be run with animation (default), or non-animatedly. See `AnimationMode` for information on when to use a non-animated mode.
+</ParamField>
+
+<ParamField path="delay" type="TimeInterval" default="0">
+  A delay, in seconds, after which to start the animation.
+</ParamField>
+
+<ParamField path="gestureVelocity" type="CGPoint?" default="nil">
+  If provided, this value will be used to set the `velocity` of whatever underlying animations run in the `animations` block. This should be primarily used to "inject" the velocity of a gesture recognizer (when the gesture ends) into the animations.
+</ParamField>
+
+<ParamField path="animations" type="() -> Void" required>
+  A block containing the changes to your views' animatable properties. Note that for animations to work correctly, you must set values on the view's `animator`, not just the view itself. For example, to animate a view's alpha, use `myView.animator.alpha = 1.0` instead of `myView.alpha = 1.0`.
+</ParamField>
+
+<ParamField path="completion" type="((Bool, Bool) -> Void)?" default="nil">
+  A block to be executed when the specified animations have either finished or retargeted to a new value. The first parameter indicates whether the animation finished, and the second indicates whether it was retargeted.
+</ParamField>
+
+## Example usage
+
+```swift
+let box = UIView(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
+view.addSubview(box)
+box.backgroundColor = .systemMint
+
+Wave.animate(withSpring: Spring(dampingRatio: 0.6, response: 1.2)) {
+    // Animate some UIView properties
+    box.animator.center = view.center
+    box.animator.backgroundColor = .systemBlue
+
+    // And one on CALayer
+    box.layer.animator.cornerRadius = 10.0
+}
+```
+
+### Animating with completion
+
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.8, response: 0.4)) {
+    view.animator.alpha = 0.0
+} completion: { finished, retargeted in
+    if finished && !retargeted {
+        view.removeFromSuperview()
+    }
+}
+```
+
+### Animating with gesture velocity
+
+```swift
+@objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+    switch gesture.state {
+    case .ended:
+        let velocity = gesture.velocity(in: view)
+        Wave.animate(
+            withSpring: .defaultInteractive,
+            gestureVelocity: velocity
+        ) {
+            draggedView.animator.center = finalPosition
+        }
+    default:
+        break
+    }
+}
+```
+
+<Tip>
+For a full list of the various `UIView` and `CALayer` animatable properties that Wave supports, see `ViewAnimator` and `LayerAnimator`.
+</Tip>

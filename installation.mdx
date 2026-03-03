@@ -1,0 +1,171 @@
+---
+title: Installation
+description: Add Wave to your iOS or macOS project using Swift Package Manager
+---
+
+Wave is distributed exclusively through Swift Package Manager, the native dependency manager for Swift projects.
+
+## Swift Package Manager
+
+<Steps>
+  <Step title="Open your project in Xcode">
+    Launch Xcode and open your existing project, or create a new one.
+  </Step>
+
+  <Step title="Add package dependency">
+    In Xcode, select **File → Add Packages** from the menu bar.
+
+    <img className="block" src="/images/add-packages.png" alt="Add Packages menu" />
+  </Step>
+
+  <Step title="Enter the Wave repository URL">
+    In the search field at the top right, paste the Wave repository URL:
+
+    ```
+    https://github.com/jtrivedi/Wave
+    ```
+
+    <img className="block" src="/images/package-search.png" alt="Package search" />
+  </Step>
+
+  <Step title="Select version rule">
+    Choose your preferred dependency rule:
+    
+    - **Up to Next Major Version**: Recommended for most projects (e.g., 1.0.0 < 2.0.0)
+    - **Up to Next Minor Version**: For more conservative updates (e.g., 1.0.0 < 1.1.0)
+    - **Exact Version**: For pinning to a specific release
+
+    Click **Add Package** to continue.
+  </Step>
+
+  <Step title="Add to your target">
+    Select the target(s) where you want to use Wave, then click **Add Package**.
+
+    Xcode will download Wave and add it to your project.
+  </Step>
+</Steps>
+
+## Manual Package.swift integration
+
+If you're building a Swift package or prefer to manually edit your `Package.swift` file, add Wave as a dependency:
+
+```swift Package.swift
+import PackageDescription
+
+let package = Package(
+    name: "YourPackage",
+    platforms: [
+        .iOS(.v13),
+        .macOS(.v10_12)
+    ],
+    dependencies: [
+        .package(url: "https://github.com/jtrivedi/Wave", from: "1.0.0")
+    ],
+    targets: [
+        .target(
+            name: "YourTarget",
+            dependencies: ["Wave"]
+        )
+    ]
+)
+```
+
+<Note>
+Make sure your platform deployment target matches Wave's minimum requirements: iOS 13.0+ or macOS 10.12+
+</Note>
+
+## Import Wave
+
+Once installed, import Wave at the top of any Swift file where you want to use it:
+
+```swift
+import Wave
+import UIKit // or AppKit for macOS
+```
+
+## Verify installation
+
+To verify Wave is installed correctly, try creating a simple spring:
+
+```swift
+import Wave
+
+let spring = Spring(dampingRatio: 1.0, response: 0.5)
+print(spring.settlingDuration) // Should print the spring's duration
+```
+
+If this compiles and runs without errors, you're ready to start animating!
+
+## Enable ProMotion support
+
+<Info>
+This step is optional but recommended for the best animation experience on ProMotion devices.
+</Info>
+
+To enable 120 fps animations on ProMotion devices (iPhone 13 Pro and later, iPad Pro), add the following to your `Info.plist`:
+
+<Steps>
+  <Step title="Open Info.plist">
+    In Xcode's Project Navigator, locate and open your `Info.plist` file.
+  </Step>
+
+  <Step title="Add the ProMotion key">
+    Right-click in the property list and select **Add Row**.
+
+    - **Key**: `CADisableMinimumFrameDuration`
+    - **Type**: Boolean
+    - **Value**: YES (checked)
+  </Step>
+</Steps>
+
+Alternatively, if you're editing the raw XML:
+
+```xml Info.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Your existing keys -->
+    <key>CADisableMinimumFrameDuration</key>
+    <true/>
+</dict>
+</plist>
+```
+
+<Warning>
+Without this setting, all animations will be capped at 60 fps, even on devices capable of 120 fps.
+</Warning>
+
+## Explore the sample app
+
+The Wave repository includes a sample app with interactive demos. To run it:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/jtrivedi/Wave.git
+    cd Wave
+    ```
+  </Step>
+
+  <Step title="Open the sample app">
+    Navigate to `Sample App/Wave-Sample/` and open `Wave-Sample.xcodeproj` in Xcode.
+  </Step>
+
+  <Step title="Run the app">
+    Select a simulator or device, then click the Run button (⌘R).
+  </Step>
+</Steps>
+
+The sample app includes several interactive demos:
+
+- **Picture-in-Picture**: Demonstrates retargeting with gesture-driven animations
+- **Grid**: Shows how to animate multiple views simultaneously
+- **Sheet**: Interactive sheet presentation with spring physics
+- **SwiftUI**: Examples of using Wave in SwiftUI views
+
+## Next steps
+
+<Card title="Quick start guide" icon="rocket" href="/quickstart">
+  Create your first Wave animation in minutes
+</Card>

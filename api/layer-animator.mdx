@@ -1,0 +1,174 @@
+---
+title: LayerAnimator
+description: Animatable properties for CALayer instances in Wave animations
+---
+
+`LayerAnimator` provides access to all animatable properties on a `CALayer`. Use the `animator` property on any `CALayer` instance to animate its properties within a Wave animation block.
+
+## Usage
+
+Access the animator through the `animator` property on any `CALayer`:
+
+```swift
+Wave.animateWith(spring: .defaultAnimated) {
+    myView.layer.animator.cornerRadius = 12
+    myView.layer.animator.shadowOpacity = 0.5
+}
+```
+
+## Appearance properties
+
+Properties that control the layer's visual appearance.
+
+<ResponseField name="cornerRadius" type="CGFloat">
+  The corner radius of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.cornerRadius = 16.0
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="opacity" type="CGFloat">
+  The opacity of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.opacity = 0.75
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="backgroundColor" type="CGColor">
+  The background color of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.backgroundColor = UIColor.systemBlue.cgColor
+  }
+  ```
+</ResponseField>
+
+## Border properties
+
+Properties that control the layer's border appearance.
+
+<ResponseField name="borderColor" type="CGColor">
+  The border color of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.borderColor = UIColor.systemRed.cgColor
+      myLayer.animator.borderWidth = 2.0
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="borderWidth" type="CGFloat">
+  The border width of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.borderWidth = 3.0
+  }
+  ```
+</ResponseField>
+
+## Shadow properties
+
+Properties that control the layer's shadow appearance.
+
+<ResponseField name="shadowColor" type="CGColor">
+  The shadow color of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.shadowColor = UIColor.black.cgColor
+      myLayer.animator.shadowOpacity = 0.3
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="shadowOpacity" type="CGFloat">
+  The shadow opacity of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.shadowOpacity = 0.5
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="shadowOffset" type="CGSize">
+  The shadow offset of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.shadowOffset = CGSize(width: 0, height: 4)
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="shadowRadius" type="CGFloat">
+  The shadow radius of the attached layer.
+  
+  ```swift
+  Wave.animateWith(spring: spring) {
+      myLayer.animator.shadowRadius = 10.0
+  }
+  ```
+</ResponseField>
+
+## Complete example
+
+```swift
+import Wave
+import UIKit
+
+class ViewController: UIViewController {
+    let customLayer = CALayer()
+    
+    func animateLayer() {
+        Wave.animateWith(spring: .defaultAnimated) {
+            // Appearance
+            customLayer.animator.backgroundColor = UIColor.systemPurple.cgColor
+            customLayer.animator.opacity = 0.9
+            customLayer.animator.cornerRadius = 24.0
+            
+            // Border
+            customLayer.animator.borderColor = UIColor.white.cgColor
+            customLayer.animator.borderWidth = 3.0
+            
+            // Shadow
+            customLayer.animator.shadowColor = UIColor.black.cgColor
+            customLayer.animator.shadowOpacity = 0.4
+            customLayer.animator.shadowOffset = CGSize(width: 0, height: 6)
+            customLayer.animator.shadowRadius = 12.0
+        }
+    }
+}
+```
+
+## UIView convenience
+
+Many `LayerAnimator` properties are also available as convenience properties on [ViewAnimator](/api/view-animator) for animating a UIView's underlying layer:
+
+```swift
+// These are equivalent:
+myView.layer.animator.cornerRadius = 12
+myView.animator.cornerRadius = 12  // Convenience API
+```
+
+The following `ViewAnimator` properties forward to `LayerAnimator`:
+- `cornerRadius`
+- `borderColor` (converted from UIColor to CGColor)
+- `borderWidth`
+- `shadowColor` (converted from UIColor to CGColor)
+- `shadowOpacity`
+- `shadowOffset`
+- `shadowRadius`
+
+## Platform availability
+
+iOS and macOS (via QuartzCore).

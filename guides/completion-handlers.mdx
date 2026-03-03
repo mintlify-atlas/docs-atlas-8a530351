@@ -1,0 +1,506 @@
+---
+title: Completion handlers
+description: Handle animation lifecycle events with finished and retargeted callbacks
+---
+
+Both Wave's block-based API and `SpringAnimator` provide completion handlers that fire when animations finish or retarget to new values. Understanding these callbacks is essential for coordinating complex animations and UI state changes.
+
+## Block-based completion
+
+The `Wave.animate(withSpring:)` method accepts an optional completion closure:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    animations: {
+        view.animator.alpha = 0.0
+    },
+    completion: { finished, retargeted in
+        if finished && !retargeted {
+            view.removeFromSuperview()
+        }
+    }
+)
+```
+
+### Completion parameters
+
+<ParamField path="finished" type="Bool">
+  Indicates whether the animation completed naturally (`true`) or is still in progress because it was retargeted (`false`).
+</ParamField>
+
+<ParamField path="retargeted" type="Bool">
+  Indicates whether the animation's target value changed mid-flight (`true`) or completed without interruption (`false`).
+</ParamField>
+
+### Understanding the flags
+
+The two boolean parameters create four possible states:
+
+| finished | retargeted | Meaning |
+|----------|------------|----------|
+| `true`   | `false`    | Animation completed normally |
+| `false`  | `true`     | Animation was retargeted and continues |
+| `false`  | `false`    | Animation was interrupted (rare) |
+| `true`   | `true`     | Not used |
+
+<Note>
+The most common pattern is checking `finished && !retargeted` to detect clean completion.
+</Note>
+
+## Property-based completion
+
+`SpringAnimator` uses a more expressive enum-based completion API:
+
+```swift
+let animator = SpringAnimator<CGFloat>(
+    spring: spring,
+    value: 0.0,
+    target: 1.0
+)
+
+animator.completion = { event in
+    switch event {
+    case .finished(at: let finalValue):
+        print("Completed at: \(finalValue)")
+        
+    case .retargeted(from: let oldTarget, to: let newTarget):
+        print("Changed from \(oldTarget) to \(newTarget)")
+    }
+}
+
+animator.start()
+```
+
+### Completion events
+
+#### Finished event
+
+Fired when the animation naturally completes:
+
+```swift
+case .finished(at: let finalValue):
+    // Animation reached its target
+    // finalValue contains the final animated value
+```
+
+The associated value provides the final value at completion:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished(at: let position):
+        print("View ended at: \(position)")
+        self.cleanupAfterAnimation()
+    case .retargeted:
+        break
+    }
+}
+```
+
+#### Retargeted event
+
+Fired when the `target` property changes while the animation is running:
+
+```swift
+case .retargeted(from: let oldTarget, to: let newTarget):
+    // Animation was interrupted and redirected
+    // oldTarget: the previous target value
+    // newTarget: the new target value
+```
+
+Example usage:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished:
+        break
+    case .retargeted(from: let old, to: let new):
+        print("Retargeted from \(old) to \(new)")
+        self.updateTrackingUI(newTarget: new)
+    }
+}
+```
+
+## When completions fire
+
+### Normal completion
+
+Animation runs to completion without interruption:
+
+```swift
+Wave.animate(withSpring: spring) {
+    view.animator.center = CGPoint(x: 200, y: 200)
+} completion: { finished, retargeted in
+    // After animation settles:
+    // finished = true, retargeted = false
+    print("Animation completed normally")
+}
+```
+
+### Retargeting
+
+Target changes while animation is running:
+
+```swift
+// Start first animation
+Wave.animate(withSpring: spring) {
+    view.animator.center = CGPoint(x: 200, y: 200)
+} completion: { finished, retargeted in
+    // This fires with: finished = false, retargeted = true
+    print("First animation retargeted")
+}
+
+// Before first animation finishes, start another
+Wave.animate(withSpring: spring) {
+    view.animator.center = CGPoint(x: 100, y: 100)
+} completion: { finished, retargeted in
+    // This fires with: finished = true, retargeted = false
+    print("Second animation completed")
+}
+```
+
+### Manual stopping
+
+With `SpringAnimator`, calling `stop()` triggers the completion handler:
+
+```swift
+let animator = SpringAnimator<CGFloat>(
+    spring: spring,
+    value: 0.0,
+    target: 1.0
+)
+
+animator.completion = { event in
+    switch event {
+    case .finished(at: let value):
+        print("Stopped at: \(value)")
+    case .retargeted:
+        break
+    }
+}
+
+animator.start()
+
+// Later...
+animator.stop(immediately: true)  // Fires completion with .finished
+```
+
+## Common patterns
+
+### Clean up after animation
+
+Remove views or reset state only when animation completes normally:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    animations: {
+        view.animator.alpha = 0.0
+        view.animator.scale = CGPoint(x: 0.8, y: 0.8)
+    },
+    completion: { finished, retargeted in
+        guard finished && !retargeted else { return }
+        view.removeFromSuperview()
+    }
+)
+```
+
+### Chain animations
+
+Start a new animation when the previous one completes:
+
+```swift
+Wave.animate(
+    withSpring: Spring(dampingRatio: 0.8, response: 0.5),
+    animations: {
+        view.animator.center = CGPoint(x: 200, y: 200)
+    },
+    completion: { finished, retargeted in
+        guard finished && !retargeted else { return }
+        
+        // Start second animation
+        Wave.animate(withSpring: spring) {
+            view.animator.backgroundColor = .systemGreen
+            view.layer.animator.cornerRadius = 25
+        }
+    }
+)
+```
+
+### Track retargeting count
+
+Count how many times an animation retargets:
+
+```swift
+var retargetCount = 0
+
+let animator = SpringAnimator<CGPoint>(
+    spring: spring,
+    value: view.center,
+    target: destination
+)
+
+animator.completion = { event in
+    switch event {
+    case .finished:
+        print("Completed after \(retargetCount) retargets")
+        retargetCount = 0
+        
+    case .retargeted:
+        retargetCount += 1
+    }
+}
+```
+
+### Dismiss after animation
+
+Dismiss a view controller when its exit animation completes:
+
+```swift
+Wave.animate(
+    withSpring: Spring(dampingRatio: 0.9, response: 0.4),
+    animations: {
+        modalView.animator.origin = CGPoint(x: 0, y: view.bounds.height)
+        modalView.animator.alpha = 0.0
+    },
+    completion: { [weak self] finished, retargeted in
+        guard finished && !retargeted else { return }
+        self?.dismiss(animated: false)
+    }
+)
+```
+
+### State machine transitions
+
+Update state only when animations complete:
+
+```swift
+enum SheetState {
+    case collapsed
+    case expanded
+}
+
+var currentState: SheetState = .collapsed
+
+func expand() {
+    sheetAnimator.target = 1.0
+    sheetAnimator.completion = { [weak self] event in
+        guard case .finished = event else { return }
+        self?.currentState = .expanded
+    }
+    sheetAnimator.start()
+}
+```
+
+## Multiple property completions
+
+When animating multiple properties in a block, the completion fires once when ALL properties finish:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    animations: {
+        view.animator.center = newCenter
+        view.animator.alpha = 0.5
+        view.layer.animator.cornerRadius = 20
+    },
+    completion: { finished, retargeted in
+        // Fires after ALL three properties settle
+        print("All properties finished")
+    }
+)
+```
+
+<Tip>
+If you need to track individual property completions, use separate `SpringAnimator` instances instead.
+</Tip>
+
+## Completion guarantees
+
+### Always called
+
+Completion handlers are guaranteed to be called eventually, whether the animation:
+- Completes normally
+- Gets retargeted
+- Gets stopped manually
+- Gets interrupted by animation mode changes
+
+### Main thread
+
+Completion handlers always execute on the main thread:
+
+```swift
+animator.completion = { event in
+    // Safe to update UI directly
+    self.label.text = "Animation complete"
+}
+```
+
+### Weak references
+
+Use `[weak self]` to avoid retain cycles:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    animations: {
+        view.animator.alpha = 0.0
+    },
+    completion: { [weak self] finished, retargeted in
+        guard let self = self else { return }
+        self.handleCompletion()
+    }
+)
+```
+
+## Real-world example
+
+Here's a complete modal presentation/dismissal implementation:
+
+```swift
+class ModalViewController: UIViewController {
+    let modalView = UIView()
+    let overlayView = UIView()
+    
+    let presentSpring = Spring(dampingRatio: 0.85, response: 0.5)
+    let dismissSpring = Spring(dampingRatio: 0.9, response: 0.4)
+    
+    func present() {
+        // Setup initial state
+        modalView.frame = CGRect(
+            x: 0,
+            y: view.bounds.height,
+            width: view.bounds.width,
+            height: 400
+        )
+        overlayView.alpha = 0
+        
+        view.addSubview(overlayView)
+        view.addSubview(modalView)
+        
+        // Animate in
+        Wave.animate(
+            withSpring: presentSpring,
+            animations: { [self] in
+                modalView.animator.origin = CGPoint(
+                    x: 0,
+                    y: view.bounds.height - 400
+                )
+                overlayView.animator.alpha = 0.4
+            },
+            completion: { [weak self] finished, retargeted in
+                guard finished && !retargeted else { return }
+                self?.didFinishPresenting()
+            }
+        )
+    }
+    
+    func dismiss() {
+        Wave.animate(
+            withSpring: dismissSpring,
+            animations: { [self] in
+                modalView.animator.origin = CGPoint(
+                    x: 0,
+                    y: view.bounds.height
+                )
+                overlayView.animator.alpha = 0.0
+            },
+            completion: { [weak self] finished, retargeted in
+                guard finished && !retargeted else { return }
+                self?.modalView.removeFromSuperview()
+                self?.overlayView.removeFromSuperview()
+                self?.didFinishDismissing()
+            }
+        )
+    }
+    
+    private func didFinishPresenting() {
+        // Enable interaction, update state, etc.
+        modalView.isUserInteractionEnabled = true
+    }
+    
+    private func didFinishDismissing() {
+        // Clean up, notify delegate, etc.
+        dismiss(animated: false)
+    }
+}
+```
+
+## Debugging completions
+
+Add logging to understand when and why completions fire:
+
+```swift
+animator.completion = { event in
+    switch event {
+    case .finished(at: let value):
+        print("✅ Finished at: \(value)")
+    case .retargeted(from: let old, to: let new):
+        print("🔄 Retargeted: \(old) → \(new)")
+    }
+}
+```
+
+For block-based API:
+
+```swift
+Wave.animate(
+    withSpring: spring,
+    animations: { /*...*/ },
+    completion: { finished, retargeted in
+        let status = finished ? "✅" : "⏸️"
+        let action = retargeted ? "retargeted" : "completed"
+        print("\(status) Animation \(action)")
+    }
+)
+```
+
+## Best practices
+
+<Steps>
+  <Step title="Check both flags">
+    Always check both `finished` and `retargeted` flags in block-based completions to understand what happened.
+  </Step>
+  
+  <Step title="Handle all event types">
+    When using `SpringAnimator`, handle both `.finished` and `.retargeted` events in your switch statement.
+  </Step>
+  
+  <Step title="Use weak references">
+    Always use `[weak self]` in completion closures to prevent retain cycles.
+  </Step>
+  
+  <Step title="Guard against retargeting">
+    Use `guard finished && !retargeted else { return }` when you only want to run code on clean completion.
+  </Step>
+  
+  <Step title="Don't assume immediate completion">
+    Never assume completions fire immediately. Springs can take hundreds of milliseconds to settle.
+  </Step>
+  
+  <Step title="Test edge cases">
+    Test what happens when animations are interrupted, retargeted, or the view controller is dismissed mid-animation.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Block-based animations" icon="cube" href="/guides/block-based-animations">
+    Learn the Wave.animate API
+  </Card>
+  
+  <Card title="Property-based animations" icon="code" href="/guides/property-based-animations">
+    Use SpringAnimator for more control
+  </Card>
+  
+  <Card title="Gesture integration" icon="hand-pointer" href="/guides/gesture-integration">
+    Combine gestures with spring animations
+  </Card>
+  
+  <Card title="Spring configuration" icon="sliders" href="/concepts/springs">
+    Fine-tune animation feel
+  </Card>
+</CardGroup>

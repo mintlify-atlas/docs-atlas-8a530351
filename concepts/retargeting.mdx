@@ -1,0 +1,320 @@
+---
+title: Retargeting
+description: Learn how Wave seamlessly transitions between animation targets while preserving velocity and momentum
+---
+
+Retargeting is Wave's ability to smoothly change an animation's target value while it's already running. This creates fluid, interruptible animations that feel natural and responsive.
+
+## What is retargeting?
+
+When you change an animation's target value mid-flight, Wave doesn't abruptly restart the animation. Instead, it:
+
+1. Preserves the current velocity and position
+2. Resets the animation's start time
+3. Smoothly animates toward the new target
+4. Fires a `.retargeted` event to notify you of the change
+
+```swift
+// Start animating to position 100
+Wave.animate(withSpring: spring) {
+    box.animator.center = CGPoint(x: 100, y: 100)
+}
+
+// While still animating, change target to 300
+// Wave smoothly transitions - no jarring restart!
+Wave.animate(withSpring: spring) {
+    box.animator.center = CGPoint(x: 300, y: 100)
+}
+```
+
+<Tip>
+Retargeting is automatic in Wave. You don't need to manually cancel or stop animations - just set a new target value.
+</Tip>
+
+## How retargeting works internally
+
+When you modify a `SpringAnimator`'s target property during animation, Wave handles the transition seamlessly:
+
+```swift
+// From SpringAnimator.swift:64-81
+public var target: T.ValueType? {
+    didSet {
+        guard let oldValue = oldValue, let newValue = target else {
+            return
+        }
+
+        if oldValue == newValue {
+            return
+        }
+
+        if state == .running {
+            // Reset start time to begin fresh spring calculation
+            self.startTime = CACurrentMediaTime()
+
+            let event = Event.retargeted(from: oldValue, to: newValue)
+            completion?(event)
+        }
+    }
+}
+```
+
+The key insight: Wave resets the `startTime` but preserves the current `value` and `velocity`. This ensures smooth transitions without velocity discontinuities.
+
+## Retargeting events
+
+Wave fires events when animations complete or retarget. You can listen to these events in your completion handler:
+
+```swift
+Wave.animate(withSpring: spring) {
+    box.animator.center = targetPosition
+} completion: { finished, retargeted in
+    if retargeted {
+        print("Animation target changed mid-flight")
+    } else if finished {
+        print("Animation completed normally")
+    }
+}
+```
+
+### SpringAnimator events
+
+When using `SpringAnimator` directly, you get more detailed event information:
+
+```swift
+let animator = SpringAnimator<CGPoint>(spring: spring, value: .zero, target: endPoint)
+
+animator.completion = { event in
+    switch event {
+    case .finished(let finalValue):
+        print("Finished at: \(finalValue)")
+        
+    case .retargeted(let oldTarget, let newTarget):
+        print("Retargeted from \(oldTarget) to \(newTarget)")
+    }
+}
+
+animator.start()
+```
+
+<Note>
+The `.retargeted` event is defined in `SpringAnimator.swift:12-25` and provides both the old and new target values.
+</Note>
+
+## Real-world example: Interactive dragging
+
+Retargeting shines in interactive scenarios. Here's how the Picture-in-Picture sample uses it:
+
+```swift
+// From PictureInPictureViewController.swift:84-98
+
+switch gesture.state {
+case .began, .changed:
+    let targetCenter = CGPoint(
+        x: initialLocation.x + translation.x,
+        y: initialLocation.y + translation.y
+    )
+    
+    // Fast spring for interactive tracking
+    // Each pan gesture update retargets the animation
+    Wave.animate(withSpring: interactiveSpring) {
+        pipView.animator.center = targetCenter
+    }
+
+case .ended:
+    let destination = calculateDestination(velocity: touchVelocity)
+    
+    // Retarget to final position with looser spring
+    // Velocity is preserved from the interactive animation!
+    Wave.animate(withSpring: animatedSpring, gestureVelocity: touchVelocity) {
+        pipView.animator.center = destination
+    }
+}
+```
+
+Notice how:
+- During dragging (`.changed`), the target continuously updates as the user moves their finger
+- Each update retargets the animation, creating smooth tracking
+- On release (`.ended`), it retargets one final time to the destination
+- The gesture velocity is injected to maintain momentum
+
+## Velocity preservation
+
+One of retargeting's most powerful features is velocity preservation. When you retarget an animation, the current velocity continues into the new animation:
+
+```swift
+let animator = SpringAnimator<CGFloat>(spring: spring, value: 0, target: 100)
+animator.start()
+
+// Later, while the animation is running...
+// Current velocity might be 150 units/second
+animator.target = 200  // Retarget!
+// Velocity of 150 units/second is preserved
+```
+
+This is why Wave animations feel so natural - there are no sudden velocity changes or jarring transitions.
+
+<Accordion title="Technical implementation details">
+  From `SpringAnimator.swift:203-247`, the `updateAnimation` method shows how velocity is preserved:
+  
+  ```swift
+  func updateAnimation(dt: TimeInterval) {
+      guard let value = value, let target = target else {
+          return
+      }
+      
+      self.state = .running
+      
+      let isAnimated = spring.response > .zero && mode != .nonAnimated
+      
+      if isAnimated {
+          // Calculate new value AND velocity based on spring physics
+          (newValue, newVelocity) = T.updateValue(
+              spring: spring,
+              value: value,
+              target: target,
+              velocity: velocity,  // Current velocity is used
+              dt: dt
+          )
+      }
+      
+      self.value = newValue
+      self.velocity = newVelocity  // Updated for next frame
+  }
+  ```
+  
+  When the target changes, `startTime` resets but `velocity` persists, ensuring smooth transitions.
+</Accordion>
+
+## Retargeting vs restarting
+
+Understand the difference between retargeting and restarting:
+
+<CodeGroup>
+```swift Retargeting (smooth)
+// Wave's default behavior - smooth transition
+Wave.animate(withSpring: spring) {
+    view.animator.center = point1
+}
+
+// Later: smoothly retargets with preserved velocity
+Wave.animate(withSpring: spring) {
+    view.animator.center = point2
+}
+```
+
+```swift Restarting (jarring)
+// Stopping and restarting creates discontinuity
+animator.stop(immediately: true)
+animator.value = currentPosition
+animator.velocity = .zero  // Lost all momentum!
+animator.target = newTarget
+animator.start()
+```
+</CodeGroup>
+
+Retargeting maintains continuity; restarting breaks it. Always prefer retargeting for interactive animations.
+
+## Multiple simultaneous retargets
+
+Wave handles rapid retargeting gracefully. Each new target update:
+
+1. Cancels the previous target
+2. Preserves the current value and velocity  
+3. Begins animating toward the new target
+
+```swift
+// Rapid-fire retargeting (like tracking a finger)
+for position in fingerPositions {
+    Wave.animate(withSpring: spring) {
+        view.animator.center = position
+    }
+}
+// Wave smoothly tracks through all positions
+```
+
+This makes Wave perfect for:
+- Touch tracking during pan gestures
+- Following mouse cursor position
+- Real-time data visualization
+- Keyboard-driven animations
+
+## Best practices
+
+<Steps>
+  <Step title="Use tighter springs for interactive tracking">
+    Lower response values (0.2-0.3) make retargeting feel more responsive:
+    
+    ```swift
+    let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.26)
+    ```
+  </Step>
+  
+  <Step title="Inject gesture velocity on release">
+    When a gesture ends, pass its velocity to maintain momentum:
+    
+    ```swift
+    Wave.animate(withSpring: spring, gestureVelocity: touchVelocity) {
+        view.animator.center = finalPosition
+    }
+    ```
+  </Step>
+  
+  <Step title="Monitor retargeting events for debugging">
+    Use completion handlers to understand retargeting behavior:
+    
+    ```swift
+    Wave.animate(withSpring: spring) {
+        view.animator.center = target
+    } completion: { finished, retargeted in
+        print("Retargeted: \(retargeted)")
+    }
+    ```
+  </Step>
+  
+  <Step title="Don't manually reset velocity">
+    Wave manages velocity automatically. Setting it to zero breaks retargeting smoothness.
+  </Step>
+</Steps>
+
+## When retargeting happens
+
+Retargeting occurs automatically when:
+
+1. **You set a new target during animation**
+   ```swift
+   animator.target = newValue  // Triggers retargeting
+   ```
+
+2. **You call Wave.animate while a previous animation is running**
+   ```swift
+   Wave.animate(withSpring: spring) {
+       view.animator.center = newTarget  // Retargets existing animation
+   }
+   ```
+
+3. **Gesture updates fire repeatedly**
+   ```swift
+   // Each .changed event retargets
+   case .changed:
+       Wave.animate(withSpring: spring) {
+           view.animator.center = touchLocation
+       }
+   ```
+
+<Warning>
+Retargeting only works when an animation is in the `.running` state. If the animation hasn't started or has already ended, setting a new target starts a fresh animation instead.
+</Warning>
+
+## Comparing to other animation systems
+
+Wave's retargeting is unique:
+
+| Feature | Wave | UIView.animate | Core Animation |
+|---------|------|----------------|----------------|
+| Automatic retargeting | ✅ Yes | ❌ No | ❌ No |
+| Velocity preservation | ✅ Yes | ❌ No | ⚠️ Manual |
+| Interruptible | ✅ Yes | ⚠️ Partial | ⚠️ Manual |
+| Spring physics | ✅ Real physics | ⚠️ Approximation | ✅ Yes |
+| Event notification | ✅ Detailed | ⚠️ Basic | ⚠️ Basic |
+
+This makes Wave ideal for modern, gesture-driven interfaces where animations need to be fluid and responsive.

@@ -1,0 +1,261 @@
+---
+title: Block-based animations
+description: Learn how to use Wave's block-based API to create spring animations with minimal code
+---
+
+Wave's block-based API provides the simplest way to create spring animations. Using `Wave.animate(withSpring:)`, you can animate multiple properties together within a single animation block.
+
+## Basic usage
+
+The fundamental pattern is to call `Wave.animate(withSpring:)` and modify view properties through the `animator` proxy:
+
+```swift
+let box = UIView(frame: CGRect(x: 0, y: 0, width: 50, height: 50))
+view.addSubview(box)
+box.backgroundColor = .systemMint
+
+Wave.animate(withSpring: Spring(dampingRatio: 0.6, response: 1.2)) {
+    // Animate UIView properties
+    box.animator.center = view.center
+    box.animator.backgroundColor = .systemBlue
+    
+    // And CALayer properties
+    box.layer.animator.cornerRadius = 10.0
+}
+```
+
+<Warning>
+You must use the `animator` property to modify values. Setting properties directly (like `box.center = ...`) will not create an animation.
+</Warning>
+
+## API reference
+
+The `Wave.animate(withSpring:)` method accepts several parameters:
+
+<ParamField path="spring" type="Spring" required>
+  The spring model that determines the timing curve and duration. See the [Springs](/concepts/springs) guide for choosing appropriate values.
+</ParamField>
+
+<ParamField path="mode" type="AnimationMode" default=".animated">
+  Controls whether the animation block runs with animation or snaps immediately. Use `.nonAnimated` to interrupt an existing animation and snap to new values.
+</ParamField>
+
+<ParamField path="delay" type="TimeInterval" default="0">
+  A delay in seconds before the animation starts.
+</ParamField>
+
+<ParamField path="gestureVelocity" type="CGPoint?" default="nil">
+  The velocity from a gesture recognizer to inject into the animation. This creates smooth continuity when transitioning from gesture-driven to spring-driven motion.
+</ParamField>
+
+<ParamField path="animations" type="() -> Void" required>
+  A closure containing the property changes to animate. Must use the `animator` property to modify values.
+</ParamField>
+
+<ParamField path="completion" type="(Bool, Bool) -> Void?" default="nil">
+  A closure called when the animation finishes or retargets. The first parameter indicates if the animation finished, the second indicates if it was retargeted.
+</ParamField>
+
+## Animatable properties
+
+### UIView properties
+
+These properties are available on `view.animator`:
+
+<CodeGroup>
+```swift Position
+// Frame and bounds
+view.animator.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+view.animator.bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
+view.animator.center = CGPoint(x: 200, y: 300)
+view.animator.origin = CGPoint(x: 100, y: 100)
+```
+
+```swift Appearance
+// Colors and opacity
+view.animator.backgroundColor = .systemBlue
+view.animator.alpha = 0.5
+```
+
+```swift Transform
+// Affine transforms
+view.animator.scale = CGPoint(x: 1.5, y: 1.5)
+view.animator.translation = CGPoint(x: 50, y: 100)
+```
+
+```swift Layer properties
+// Convenience properties that forward to layer.animator
+view.animator.cornerRadius = 16
+view.animator.borderColor = .systemRed
+view.animator.borderWidth = 2
+view.animator.shadowColor = .black
+view.animator.shadowOpacity = 0.3
+view.animator.shadowOffset = CGSize(width: 0, height: 4)
+view.animator.shadowRadius = 8
+```
+</CodeGroup>
+
+### CALayer properties
+
+These properties are available on `layer.animator`:
+
+```swift
+Wave.animate(withSpring: spring) {
+    layer.animator.cornerRadius = 20
+    layer.animator.opacity = 0.8
+    layer.animator.backgroundColor = UIColor.systemGreen.cgColor
+    layer.animator.borderColor = UIColor.systemBlue.cgColor
+    layer.animator.borderWidth = 3
+    layer.animator.shadowColor = UIColor.black.cgColor
+    layer.animator.shadowOpacity = 0.5
+    layer.animator.shadowOffset = CGSize(width: 0, height: 2)
+    layer.animator.shadowRadius = 10
+}
+```
+
+## Multiple properties
+
+You can animate multiple properties on different views in the same animation block. They will all use the same spring configuration:
+
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 0.8, response: 0.6)) {
+    headerView.animator.frame = expandedFrame
+    headerView.animator.backgroundColor = .systemIndigo
+    
+    iconView.animator.scale = CGPoint(x: 1.2, y: 1.2)
+    iconView.layer.animator.cornerRadius = 24
+    
+    labelView.animator.alpha = 0.0
+}
+```
+
+## Animation modes
+
+The `mode` parameter controls how the animation executes:
+
+### Animated mode (default)
+
+Standard spring animation:
+
+```swift
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+### Non-animated mode
+
+Use `.nonAnimated` to interrupt a running animation and snap to the final value:
+
+```swift
+// Start animation
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+
+// Later, snap to final position immediately
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+<Note>
+Simply setting `circle.center = ...` directly won't work because the animator will override it on the next frame. You must use the `.nonAnimated` mode.
+</Note>
+
+## Delayed animations
+
+Add a delay before the animation starts:
+
+```swift
+Wave.animate(
+    withSpring: Spring(dampingRatio: 0.7, response: 0.8),
+    delay: 0.5
+) {
+    view.animator.alpha = 0.0
+    view.animator.scale = CGPoint(x: 0.8, y: 0.8)
+}
+```
+
+## Working with colors
+
+Wave smoothly interpolates between colors:
+
+```swift
+Wave.animate(withSpring: Spring(dampingRatio: 1.0, response: 0.6)) {
+    // UIView background color
+    view.animator.backgroundColor = .systemPurple
+    
+    // CALayer background color
+    view.layer.animator.backgroundColor = UIColor.systemOrange.cgColor
+    
+    // Border and shadow colors
+    view.layer.animator.borderColor = UIColor.systemPink.cgColor
+    view.layer.animator.shadowColor = UIColor.black.cgColor
+}
+```
+
+Animating to `.clear` will fade the alpha component while preserving other color components:
+
+```swift
+Wave.animate(withSpring: spring) {
+    view.animator.backgroundColor = .clear  // Fades current color to transparent
+}
+```
+
+## Real-world example
+
+Here's a complete example from Wave's sample app that demonstrates multiple properties animating together:
+
+```swift
+let pipView = UIView(frame: CGRect(x: 0, y: 0, width: 120, height: 80))
+let spring = Spring(dampingRatio: 0.68, response: 0.8)
+
+// Animate to destination
+Wave.animate(withSpring: spring) {
+    pipView.animator.center = destinationPoint
+    pipView.layer.animator.cornerRadius = 16
+    pipView.layer.animator.shadowOpacity = 0.2
+    pipView.layer.animator.shadowRadius = 5
+}
+```
+
+## Best practices
+
+<Steps>
+  <Step title="Always use the animator property">
+    Modify properties through `view.animator` or `layer.animator`, never directly on the view or layer.
+  </Step>
+  
+  <Step title="Choose appropriate springs">
+    Use `Spring.defaultAnimated` for UI transitions and lower response values for interactive animations.
+  </Step>
+  
+  <Step title="Combine related changes">
+    Group related property changes in a single animation block for synchronized motion.
+  </Step>
+  
+  <Step title="Use completion handlers wisely">
+    The completion handler fires when animations finish OR retarget, so check both boolean parameters.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Property-based animations" icon="code" href="/guides/property-based-animations">
+    Learn about the lower-level SpringAnimator API for more control
+  </Card>
+  
+  <Card title="Gesture integration" icon="hand-pointer" href="/guides/gesture-integration">
+    Inject gesture velocities for fluid interactions
+  </Card>
+  
+  <Card title="Completion handlers" icon="flag-checkered" href="/guides/completion-handlers">
+    Handle animation lifecycle events
+  </Card>
+  
+  <Card title="Spring configuration" icon="sliders" href="/concepts/springs">
+    Master damping ratio and response values
+  </Card>
+</CardGroup>

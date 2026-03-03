@@ -1,0 +1,185 @@
+---
+title: AnimationMode
+description: Controls whether animation blocks execute with animation or snap immediately to target values
+---
+
+`AnimationMode` determines whether changes in a `Wave.animate` block should be animated with spring physics or applied immediately without animation.
+
+## Enum definition
+
+```swift
+public enum AnimationMode {
+    case animated
+    case nonAnimated
+}
+```
+
+## Cases
+
+<ParamField path="animated" type="case">
+  The default mode. Changes in the animation block are animated using the specified spring configuration.
+  
+  Use this mode for standard animations where you want smooth, physics-based transitions between values.
+</ParamField>
+
+<ParamField path="nonAnimated" type="case">
+  Directly sets animation values to their target values without animation.
+  
+  Use this mode when you need to interrupt an existing animation and snap immediately to new values. This is particularly useful for stopping animations and jumping to a final state.
+</ParamField>
+
+## Usage
+
+The `mode` parameter is passed to `Wave.animate(withSpring:mode:animations:)` and defaults to `.animated`.
+
+### Default animated mode
+
+When no mode is specified, animations run normally with spring physics:
+
+```swift
+let spring = Spring(dampingRatio: 0.8, response: 0.4)
+
+Wave.animate(withSpring: spring) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+This animates the circle from its current position to `(500, 100)` using the specified spring.
+
+### Explicitly animated mode
+
+You can explicitly specify `.animated` mode for clarity:
+
+```swift
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+## When to use nonAnimated mode
+
+The `.nonAnimated` mode is essential when you need to interrupt ongoing animations and snap to final values.
+
+### The problem: Interrupting animations
+
+Consider this scenario where an animation is running:
+
+```swift
+// Start animating the circle to the right
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+While the animation is running, if you try to stop it by setting the value directly:
+
+```swift
+// This WON'T work as expected!
+circle.center = CGPoint(x: 500, y: 100)
+```
+
+The `center` value will be set, but it will be immediately overridden on the next frame because the animator is still running.
+
+### The solution: Using nonAnimated mode
+
+To correctly interrupt the animation and snap to the final position, use `.nonAnimated` mode:
+
+```swift
+// This correctly stops the animation and snaps to the target
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+This stops the running animation and immediately sets the value to the target without any interpolation.
+
+## Common use cases
+
+### Gesture-driven animations
+
+When handling gestures, you typically want animated mode during the release phase, but might want non-animated mode to snap values during the gesture:
+
+```swift
+@objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+    let translation = gesture.translation(in: view)
+    
+    switch gesture.state {
+    case .changed:
+        // Update position immediately while dragging
+        Wave.animate(withSpring: .defaultInteractive, mode: .nonAnimated) {
+            draggedView.animator.center = CGPoint(
+                x: initialCenter.x + translation.x,
+                y: initialCenter.y + translation.y
+            )
+        }
+        
+    case .ended, .cancelled:
+        // Animate back to the original position
+        Wave.animate(withSpring: Spring(dampingRatio: 0.7, response: 0.5)) {
+            draggedView.animator.center = initialCenter
+        }
+        
+    default:
+        break
+    }
+}
+```
+
+### Canceling animations
+
+When implementing cancel functionality:
+
+```swift
+func startAnimation() {
+    Wave.animate(withSpring: Spring(dampingRatio: 0.6, response: 1.0)) {
+        animatedView.animator.alpha = 1.0
+        animatedView.animator.transform = .identity
+    }
+}
+
+func cancelAnimation() {
+    // Immediately reset to initial state
+    Wave.animate(withSpring: .defaultNonAnimated, mode: .nonAnimated) {
+        animatedView.animator.alpha = 0.0
+        animatedView.animator.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+    }
+}
+```
+
+### State synchronization
+
+When synchronizing UI state from external sources (like network updates), you might want to snap to the new state:
+
+```swift
+func updateFromServer(position: CGPoint) {
+    // Snap to server-authoritative position without animation
+    Wave.animate(withSpring: .defaultNonAnimated, mode: .nonAnimated) {
+        playerView.animator.center = position
+    }
+}
+```
+
+## Technical details
+
+When `.nonAnimated` mode is used:
+
+1. The spring parameter is replaced with `Spring.defaultNonAnimated` (which has a response of 0)
+2. Values are set immediately to their targets in a single frame
+3. The animation completes immediately with the `finished` parameter as `true`
+4. Any running animations for the same properties are stopped
+
+## Best practices
+
+<Tip>
+Always use `.nonAnimated` mode when you need to interrupt animations. Simply setting properties directly on the view (without using the animator) won't work if an animation is already running.
+</Tip>
+
+<Warning>
+Don't confuse `.nonAnimated` mode with immediate property updates. You still need to use the `animator` proxy and wrap changes in `Wave.animate()` - the mode just controls whether the change is interpolated over time.
+</Warning>
+
+## See also
+
+- [Wave.animate](/api/wave) - The main animation method that accepts the mode parameter
+- [Spring](/api/spring) - Spring configuration, including `Spring.defaultNonAnimated`
+- [SpringInterpolatable](/api/spring-interpolatable) - Protocol for types that can be animated

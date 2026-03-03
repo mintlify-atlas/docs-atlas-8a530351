@@ -1,0 +1,314 @@
+---
+title: SpringAnimator
+description: A low-level animator for creating custom spring-based animations with fine-grained control.
+---
+
+`SpringAnimator` provides direct control over spring animations, allowing you to manually manage animation state, update values, and respond to animation events.
+
+## Overview
+
+`SpringAnimator` is a generic class that can animate any type conforming to `SpringInterpolatable`. While most developers will use the high-level `Wave.animate()` API, `SpringAnimator` is useful when you need:
+
+- Fine-grained control over animation lifecycle
+- Custom animation types
+- Manual animation updates
+- Dynamic retargeting during animation
+
+## Type parameters
+
+`SpringAnimator` is a generic class:
+
+```swift
+public class SpringAnimator<T: SpringInterpolatable>
+```
+
+where `T` is the type being animated (e.g., `CGFloat`, `CGPoint`, `CGRect`, etc.).
+
+## Initializer
+
+### init(spring:value:target:)
+
+Creates a new animation with a given `Spring`, and optionally, an initial and target value.
+
+```swift
+public init(
+    spring: Spring,
+    value: T.ValueType? = nil,
+    target: T.ValueType? = nil
+)
+```
+
+<ParamField path="spring" type="Spring" required>
+  The spring model that determines the animation's motion.
+</ParamField>
+
+<ParamField path="value" type="T.ValueType?" default="nil">
+  The initial, starting value of the animation. While optional in the initializer, it must be set to a non-nil value before the animation can start.
+</ParamField>
+
+<ParamField path="target" type="T.ValueType?" default="nil">
+  The target value of the animation. While optional in the initializer, it must be set to a non-nil value before the animation can start.
+</ParamField>
+
+<Note>
+While `value` and `target` are optional in the initializer, they must be set to non-nil values before the animation can start.
+</Note>
+
+## Properties
+
+### id
+
+A unique identifier for the animation.
+
+```swift
+public let id: UUID
+```
+
+### state
+
+The execution state of the animation (`inactive`, `running`, or `ended`).
+
+```swift
+public private(set) var state: AnimatorState
+```
+
+Possible values:
+- `.inactive`: The animation is not currently running, but is ready
+- `.running`: The animation is currently active and executing
+- `.ended`: The animation has just stopped, and will be reset to the `inactive` state
+
+### spring
+
+The spring model that determines the animation's motion.
+
+```swift
+public var spring: Spring
+```
+
+### value
+
+The current value of the animation. This value will change as the animation executes.
+
+```swift
+public var value: T.ValueType?
+```
+
+<Note>
+`value` needs to be set to a non-nil value before the animation can start.
+</Note>
+
+### target
+
+The current target value of the animation.
+
+```swift
+public var target: T.ValueType?
+```
+
+<Tip>
+You may modify this value while the animation is in-flight to "retarget" to a new target value.
+</Tip>
+
+### velocity
+
+The current velocity of the animation.
+
+```swift
+public var velocity: T.VelocityType
+```
+
+<Tip>
+If animating a view's `center` or `frame` with a gesture, you may want to set `velocity` to the gesture's final velocity on touch-up.
+</Tip>
+
+### valueChanged
+
+The callback block to call when the animation's `value` changes as it executes. Use the `currentValue` to drive your application's animations.
+
+```swift
+public var valueChanged: ((_ currentValue: T.ValueType) -> Void)?
+```
+
+### completion
+
+The completion block to call when the animation either finishes, or "re-targets" to a new target value.
+
+```swift
+public var completion: ((_ event: Event) -> Void)?
+```
+
+### mode
+
+The animation's mode. If set to `.nonAnimated`, the animation will snap to the target value when run.
+
+```swift
+public var mode: AnimationMode
+```
+
+Default value: `.animated`
+
+### integralizeValues
+
+Whether the values returned in `valueChanged` should be integralized to the screen's pixel boundaries. This helps prevent drawing frames between pixels, causing aliasing issues.
+
+```swift
+public var integralizeValues: Bool
+```
+
+Default value: `false`
+
+<Note>
+Enabling `integralizeValues` effectively quantizes `value`, so don't use this for values that are supposed to be continuous.
+</Note>
+
+### settlingTime
+
+How long the animation will take to complete, based off its `spring` property.
+
+```swift
+public var settlingTime: TimeInterval
+```
+
+<Note>
+This is useful for debugging purposes only. Do not use `settlingTime` to determine the animation's progress.
+</Note>
+
+## Methods
+
+### start(afterDelay:)
+
+Starts the animation (if not already running) with an optional delay.
+
+```swift
+public func start(afterDelay delay: TimeInterval = 0)
+```
+
+<ParamField path="delay" type="TimeInterval" default="0">
+  The amount of time (measured in seconds) to wait before starting the animation.
+</ParamField>
+
+### stop(immediately:)
+
+Stops the animation at the current value.
+
+```swift
+public func stop(immediately: Bool = true)
+```
+
+<ParamField path="immediately" type="Bool" default="true">
+  If `true`, the animation stops immediately at the current value. If `false`, the animation will animate to the current value (sets `target` to the current `value`).
+</ParamField>
+
+## Event enumeration
+
+`SpringAnimator.Event` represents animation lifecycle events:
+
+### finished(at:)
+
+Indicates the animation has fully completed.
+
+```swift
+case finished(at: T.ValueType)
+```
+
+### retargeted(from:to:)
+
+Indicates that the animation's `target` value was changed in-flight (i.e. while the animation was running).
+
+```swift
+case retargeted(from: T.ValueType, to: T.ValueType)
+```
+
+<ParamField path="from" type="T.ValueType">
+  The previous `target` value of the animation.
+</ParamField>
+
+<ParamField path="to" type="T.ValueType">
+  The new `target` value of the animation.
+</ParamField>
+
+## Example usage
+
+### Basic animation
+
+```swift
+let spring = Spring(dampingRatio: 0.7, response: 0.4)
+let animator = SpringAnimator<CGPoint>(spring: spring)
+
+animator.value = view.center
+animator.target = targetPoint
+
+animator.valueChanged = { currentValue in
+    view.center = currentValue
+}
+
+animator.completion = { event in
+    switch event {
+    case .finished(let finalValue):
+        print("Animation finished at \(finalValue)")
+    case .retargeted(let from, let to):
+        print("Animation retargeted from \(from) to \(to)")
+    }
+}
+
+animator.start()
+```
+
+### Animating with gesture velocity
+
+```swift
+let animator = SpringAnimator<CGPoint>(spring: .defaultInteractive)
+
+animator.value = draggedView.center
+animator.target = finalPosition
+animator.velocity = gestureVelocity // Inject gesture velocity
+
+animator.valueChanged = { currentValue in
+    draggedView.center = currentValue
+}
+
+animator.start()
+```
+
+### Retargeting an animation
+
+```swift
+// Start animation
+animator.value = view.center
+animator.target = CGPoint(x: 100, y: 100)
+animator.start()
+
+// Later, while animation is running, retarget to a new position
+animator.target = CGPoint(x: 200, y: 200)
+// Animation smoothly redirects to the new target
+```
+
+### Delayed animation
+
+```swift
+let animator = SpringAnimator<CGFloat>(spring: .defaultAnimated)
+
+animator.value = 0.0
+animator.target = 1.0
+
+animator.valueChanged = { currentValue in
+    view.alpha = currentValue
+}
+
+// Start after 0.5 seconds
+animator.start(afterDelay: 0.5)
+```
+
+### Stopping an animation
+
+```swift
+// Stop immediately at current value
+animator.stop(immediately: true)
+
+// Or animate to current value
+animator.stop(immediately: false)
+```
+
+<Tip>
+Use `integralizeValues = true` when animating positions to prevent subpixel rendering artifacts, but avoid it for smooth animations like opacity or scale.
+</Tip>

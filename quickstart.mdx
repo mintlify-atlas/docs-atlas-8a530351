@@ -1,80 +1,326 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Create your first Wave animation and learn the fundamentals in under 5 minutes
 ---
 
-## Get started in three steps
+This guide will walk you through creating your first Wave animation. You'll learn how to animate a view using spring physics and understand the core concepts.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+Make sure you've [installed Wave](/installation) before continuing.
+</Note>
 
-### Step 1: Set up your local environment
+## Your first animation
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+Let's create a simple animation that moves a view to the center of the screen with a bouncy spring effect.
+
+<Steps>
+  <Step title="Import Wave">
+    Start by importing Wave in your view controller:
+
+    ```swift
+    import UIKit
+    import Wave
+    ```
+  </Step>
+
+  <Step title="Create a view to animate">
+    Add a colored box to your view:
+
+    ```swift
+    class ViewController: UIViewController {
+        let box = UIView(frame: CGRect(x: 50, y: 100, width: 80, height: 80))
+        
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            
+            box.backgroundColor = .systemBlue
+            box.layer.cornerRadius = 16
+            view.addSubview(box)
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Animate with Wave">
+    Add a button or call this in `viewDidAppear` to trigger the animation:
+
+    ```swift
+    func animateBox() {
+        // Create a spring with some bounce
+        let spring = Spring(dampingRatio: 0.6, response: 0.8)
+        
+        Wave.animate(withSpring: spring) {
+            // Animate to center with scale and rotation
+            self.box.animator.center = self.view.center
+            self.box.animator.backgroundColor = .systemPink
+            self.box.animator.scale = CGPoint(x: 1.5, y: 1.5)
+        }
+    }
+    ```
+
+    <Warning>
+    Notice we use `box.animator.center` instead of `box.center`. This is required for Wave to track and animate the property.
+    </Warning>
+  </Step>
+</Steps>
+
+That's it! Run your app and you'll see a smooth, spring-based animation with natural physics.
+
+## Understanding springs
+
+The `Spring` type controls how your animation moves. It has two key parameters:
+
+### Damping ratio
+
+Controls the "bounciness" of the animation:
+
+- `1.0`: **Critically damped** - smoothly reaches the target with no oscillation
+- `< 1.0`: **Underdamped** - overshoots and bounces before settling
+- `> 1.0`: **Overdamped** - slowly approaches the target without overshooting
+
+### Response
+
+Controls how quickly the animation reaches its target (measured in seconds):
+
+- Lower values (`0.2 - 0.4`): Fast, snappy animations
+- Medium values (`0.5 - 0.8`): Balanced, natural feeling
+- Higher values (`1.0+`): Slow, deliberate animations
+
+<CodeGroup>
+```swift Bouncy spring
+// Quick and bouncy - great for interactive gestures
+let spring = Spring(dampingRatio: 0.6, response: 0.3)
+```
+
+```swift Smooth spring
+// Smooth with no bounce - great for transitions
+let spring = Spring(dampingRatio: 1.0, response: 0.5)
+```
+
+```swift Slow and fluid
+// Slow and graceful - great for emphasis
+let spring = Spring(dampingRatio: 0.8, response: 1.2)
+```
+</CodeGroup>
+
+### Default springs
+
+Wave provides pre-configured springs for common use cases:
+
+```swift
+// For interactive animations (dragging, gestures)
+let interactive = Spring.defaultInteractive  // dampingRatio: 0.8, response: 0.2
+
+// For non-interactive animations (transitions, state changes)
+let animated = Spring.defaultAnimated  // dampingRatio: 1.0, response: 0.82
+```
+
+## Animatable properties
+
+Wave's block-based API supports animating these UIView and CALayer properties:
+
+<CardGroup cols={2}>
+  <Card title="Layout" icon="up-down-left-right">
+    `frame`, `bounds`, `center`, `origin`
+  </Card>
+  <Card title="Appearance" icon="palette">
+    `alpha`, `backgroundColor`
+  </Card>
+  <Card title="Transform" icon="maximize">
+    `scale`, `translation`
+  </Card>
+  <Card title="Layer" icon="layer-group">
+    `cornerRadius`, `borderColor`, `borderWidth`, `shadowColor`, `shadowOpacity`, `shadowOffset`, `shadowRadius`
+  </Card>
+</CardGroup>
+
+## Adding gesture velocity
+
+One of Wave's most powerful features is the ability to inject gesture velocity into animations. This creates incredibly fluid, responsive interactions.
+
+```swift
+class ViewController: UIViewController {
+    let draggableView = UIView(frame: CGRect(x: 100, y: 100, width: 100, height: 100))
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        draggableView.backgroundColor = .systemOrange
+        draggableView.layer.cornerRadius = 20
+        view.addSubview(draggableView)
+        
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+        draggableView.addGestureRecognizer(pan)
+    }
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    var initialCenter: CGPoint = .zero
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        
+        switch gesture.state {
+        case .began:
+            initialCenter = draggableView.center
+            
+        case .changed:
+            // Use a tight spring for tracking the gesture
+            let interactiveSpring = Spring(dampingRatio: 0.8, response: 0.2)
+            
+            Wave.animate(withSpring: interactiveSpring) {
+                self.draggableView.animator.center = CGPoint(
+                    x: self.initialCenter.x + translation.x,
+                    y: self.initialCenter.y + translation.y
+                )
+            }
+            
+        case .ended:
+            // Use a looser spring for the final animation
+            let animatedSpring = Spring(dampingRatio: 0.68, response: 0.8)
+            
+            // Inject the gesture velocity for natural momentum
+            Wave.animate(withSpring: animatedSpring, gestureVelocity: velocity) {
+                self.draggableView.animator.center = self.view.center
+            }
+            
+        default:
+            break
+        }
+    }
+}
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Info>
+Passing `gestureVelocity` to the animation preserves the momentum from the gesture, making the animation feel continuous and natural.
+</Info>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Completion callbacks
 
-### Step 3: Go live
+Wave supports completion callbacks that tell you when an animation finishes or gets retargeted:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```swift
+Wave.animate(withSpring: Spring.defaultAnimated) {
+    box.animator.alpha = 0.0
+} completion: { finished, retargeted in
+    if finished {
+        print("Animation completed successfully")
+        // Remove the view, trigger another animation, etc.
+    }
+    
+    if retargeted {
+        print("Animation was interrupted and retargeted")
+        // The target value changed mid-animation
+    }
+}
+```
+
+- `finished`: `true` if the animation completed normally
+- `retargeted`: `true` if the target value changed while animating
+
+## Understanding retargeting
+
+Retargeting is what makes Wave special. You can change an animation's target value at any time, and Wave will smoothly redirect:
+
+```swift
+// Start animating to the right
+Wave.animate(withSpring: Spring.defaultAnimated) {
+    box.animator.center.x = 300
+}
+
+// Before it finishes, change direction
+// The animation will smoothly arc to the new target
+DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+    Wave.animate(withSpring: Spring.defaultAnimated) {
+        self.box.animator.center.x = 100
+    }
+}
+```
+
+The second animation doesn't abruptly reset the motion. Instead, Wave preserves the velocity and creates a smooth arc to the new destination.
+
+<Note>
+Retargeting is especially powerful for gesture-driven UIs where users frequently change direction mid-interaction.
+</Note>
+
+## Complete example
+
+Here's a complete, working example that demonstrates multiple concepts:
+
+```swift ViewController.swift
+import UIKit
+import Wave
+
+class ViewController: UIViewController {
+    
+    let box = UIView(frame: CGRect(x: 0, y: 0, width: 80, height: 80))
+    let resetButton = UIButton(type: .system)
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        
+        // Configure the animated box
+        box.backgroundColor = .systemBlue
+        box.layer.cornerRadius = 16
+        box.center = CGPoint(x: 100, y: 200)
+        view.addSubview(box)
+        
+        // Add tap gesture to the box
+        let tap = UITapGestureRecognizer(target: self, action: #selector(boxTapped))
+        box.addGestureRecognizer(tap)
+        
+        // Configure reset button
+        resetButton.setTitle("Reset", for: .normal)
+        resetButton.frame = CGRect(x: 0, y: 0, width: 100, height: 44)
+        resetButton.center = CGPoint(x: view.center.x, y: view.bounds.height - 100)
+        resetButton.addTarget(self, action: #selector(reset), for: .touchUpInside)
+        view.addSubview(resetButton)
+    }
+    
+    @objc func boxTapped() {
+        let spring = Spring(dampingRatio: 0.65, response: 0.7)
+        
+        Wave.animate(withSpring: spring) {
+            // Animate multiple properties simultaneously
+            self.box.animator.center = self.view.center
+            self.box.animator.backgroundColor = .systemPink
+            self.box.animator.scale = CGPoint(x: 1.5, y: 1.5)
+            self.box.animator.cornerRadius = 40
+        } completion: { finished, retargeted in
+            if finished {
+                print("Box animation completed!")
+            }
+        }
+    }
+    
+    @objc func reset() {
+        let spring = Spring(dampingRatio: 0.8, response: 0.5)
+        
+        Wave.animate(withSpring: spring) {
+            self.box.animator.center = CGPoint(x: 100, y: 200)
+            self.box.animator.backgroundColor = .systemBlue
+            self.box.animator.scale = CGPoint(x: 1.0, y: 1.0)
+            self.box.animator.cornerRadius = 16
+        }
+    }
+}
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you understand the basics, explore these topics:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Block-based animation" icon="code" href="/guides/block-based-animations">
+    Deep dive into the block-based API and all animatable properties
+  </Card>
+  <Card title="Property-based animation" icon="sliders" href="/guides/property-based-animations">
+    Learn to use SpringAnimator for custom animations
+  </Card>
+  <Card title="Spring physics" icon="atom" href="/concepts/springs">
+    Master spring configuration and timing
+  </Card>
+  <Card title="Examples" icon="book" href="/examples/picture-in-picture">
+    See real-world examples and common patterns
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

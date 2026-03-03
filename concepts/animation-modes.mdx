@@ -1,0 +1,348 @@
+---
+title: Animation modes
+description: Control whether animations are animated or snap immediately to target values using AnimationMode
+---
+
+Animation modes determine whether Wave animates smoothly to a target value or snaps to it immediately. This is essential for interrupting animations and ensuring correct state updates.
+
+## The two modes
+
+Wave provides two animation modes:
+
+<CodeGroup>
+```swift Animated (default)
+// Smoothly animates using spring physics
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+```swift Non-animated
+// Immediately snaps to the target value
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+</CodeGroup>
+
+The default mode is `.animated`, so you typically only specify `mode` when you need `.nonAnimated` behavior.
+
+## Why non-animated mode exists
+
+Consider this scenario:
+
+```swift
+// Start animating a circle from left to right
+Wave.animate(withSpring: spring, mode: .animated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+
+// Later, you want the circle to snap to its final position
+circle.center = CGPoint(x: 500, y: 100)
+```
+
+**Problem**: Setting `circle.center` directly doesn't work! The animator is still running and will override your value in the next frame.
+
+**Solution**: Use `.nonAnimated` mode to properly stop the animation:
+
+```swift
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    circle.animator.center = CGPoint(x: 500, y: 100)
+}
+```
+
+<Warning>
+When an animation is running, directly setting properties on the view (without using `.animator`) will be overridden by the animator on the next frame. Always use `.nonAnimated` mode to interrupt and snap.
+</Warning>
+
+## How it works internally
+
+From `AnimationMode.swift:8-50`, the mode controls whether spring calculations are performed:
+
+```swift
+public enum AnimationMode {
+    /// The default mode - uses spring physics
+    case animated
+
+    /// Directly sets the value without animation
+    case nonAnimated
+}
+```
+
+During each animation frame, Wave checks the mode:
+
+```swift
+// From SpringAnimator.swift:219-226
+let isAnimated = spring.response > .zero && mode != .nonAnimated
+
+if isAnimated {
+    // Calculate spring physics
+    (newValue, newVelocity) = T.updateValue(
+        spring: spring, value: value, target: target, velocity: velocity, dt: dt
+    )
+} else {
+    // Snap immediately
+    newValue = target
+    newVelocity = .zero
+}
+```
+
+When `mode == .nonAnimated`, Wave:
+1. Sets value directly to target
+2. Resets velocity to zero
+3. Marks the animation as finished immediately
+
+## Real-world use cases
+
+### Canceling an in-flight animation
+
+```swift
+let cancelButton = UIButton()
+cancelButton.addAction(UIAction { _ in
+    // User tapped cancel - snap to final state immediately
+    Wave.animate(withSpring: spring, mode: .nonAnimated) {
+        progressView.animator.alpha = 0
+        progressView.animator.scale = CGPoint(x: 0.5, y: 0.5)
+    }
+}, for: .touchUpInside)
+```
+
+### Resetting UI state
+
+```swift
+func resetToDefaultState() {
+    // Immediately snap all views to their default positions
+    Wave.animate(withSpring: spring, mode: .nonAnimated) {
+        menuButton.animator.center = defaultMenuPosition
+        overlay.animator.alpha = 0
+        contentView.animator.frame = defaultFrame
+    }
+}
+```
+
+### Skip animation on first appearance
+
+```swift
+override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    
+    // Set initial state without animation
+    Wave.animate(withSpring: spring, mode: .nonAnimated) {
+        menuView.animator.center = offscreenPosition
+    }
+}
+
+override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    
+    // Now animate in
+    Wave.animate(withSpring: spring, mode: .animated) {
+        menuView.animator.center = onscreenPosition
+    }
+}
+```
+
+## Non-animated springs
+
+Wave provides a special spring for non-animated mode:
+
+```swift
+// From Spring.swift:119-120
+static public let defaultNonAnimated = Spring(dampingRatio: 1.0, response: 0.0)
+```
+
+A spring with `response: 0.0` has:
+- Infinite stiffness
+- Zero animation duration
+- Immediate settling
+
+```swift
+let spring = Spring(dampingRatio: 1.0, response: 0.0)
+print(spring.stiffness)          // .infinity
+print(spring.settlingDuration)   // 1.0 (minimum internal value)
+```
+
+<Note>
+Wave automatically uses `.defaultNonAnimated` spring when you specify `mode: .nonAnimated`, so you don't need to create zero-response springs manually.
+</Note>
+
+## Automatic mode detection
+
+Wave is smart about detecting when animations should be non-animated:
+
+```swift
+// From Wave.swift:61-62
+let settings = AnimationController.AnimationParameters(
+    groupUUID: UUID(),
+    spring: (mode == .nonAnimated) ? .defaultNonAnimated : spring,
+    mode: (spring.response == 0) ? .nonAnimated : mode,
+    delay: delay,
+    gestureVelocity: gestureVelocity,
+    completion: completion
+)
+```
+
+If you provide a spring with `response: 0`, Wave automatically uses `.nonAnimated` mode even if you didn't specify it.
+
+## Mode on SpringAnimator
+
+When using `SpringAnimator` directly, you can control the mode via the `mode` property:
+
+```swift
+let animator = SpringAnimator<CGPoint>(spring: spring)
+animator.value = currentPosition
+animator.target = targetPosition
+animator.mode = .animated  // or .nonAnimated
+
+animator.start()
+```
+
+You can even change the mode mid-animation:
+
+```swift
+animator.mode = .animated
+animator.start()
+
+// Later, decide to snap to target immediately
+animator.mode = .nonAnimated
+// Animation will finish on the next frame
+```
+
+<Tip>
+Changing `mode` to `.nonAnimated` is safer than calling `stop(immediately: true)` because it properly updates the animator state and fires completion handlers.
+</Tip>
+
+## Common pitfalls
+
+### Setting properties directly during animation
+
+❌ **Wrong**:
+```swift
+Wave.animate(withSpring: spring) {
+    box.animator.center = targetPosition
+}
+
+// Later - this won't work!
+box.center = finalPosition  // Will be overridden by animator
+```
+
+✅ **Correct**:
+```swift
+Wave.animate(withSpring: spring) {
+    box.animator.center = targetPosition  
+}
+
+// Later - use non-animated mode
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    box.animator.center = finalPosition
+}
+```
+
+### Forgetting to stop animations
+
+❌ **Wrong**:
+```swift
+// Start animation
+Wave.animate(withSpring: spring) {
+    view.animator.alpha = 1.0
+}
+
+// Remove view from hierarchy
+view.removeFromSuperview()  // Animation still running in background!
+```
+
+✅ **Correct**:
+```swift
+// Start animation
+Wave.animate(withSpring: spring) {
+    view.animator.alpha = 1.0
+}
+
+// Properly stop before removing
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    view.animator.alpha = 0
+}
+view.removeFromSuperview()
+```
+
+### Using non-animated mode for everything
+
+❌ **Wrong**:
+```swift
+// Why use Wave at all?
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    button.animator.center = newPosition
+    button.animator.scale = CGPoint(x: 1.2, y: 1.2)
+}
+```
+
+✅ **Correct**:
+```swift
+// Use animated mode for visual feedback
+Wave.animate(withSpring: spring, mode: .animated) {
+    button.animator.center = newPosition
+    button.animator.scale = CGPoint(x: 1.2, y: 1.2)
+}
+```
+
+Non-animated mode is for interrupting animations, not replacing them.
+
+## Completion behavior
+
+Both modes trigger completion handlers, but with different timing:
+
+```swift
+Wave.animate(withSpring: spring, mode: .animated) {
+    view.animator.center = target
+} completion: { finished, retargeted in
+    // Called after spring settles (could be 1+ seconds)
+    print("Animated completion")
+}
+
+Wave.animate(withSpring: spring, mode: .nonAnimated) {
+    view.animator.center = target
+} completion: { finished, retargeted in
+    // Called immediately on next frame (1/60th of a second)
+    print("Non-animated completion")
+}
+```
+
+## Performance considerations
+
+Non-animated mode is more performant:
+
+- **Animated mode**: Runs spring calculations every frame (60fps) until settled
+- **Non-animated mode**: Single value assignment, finishes in one frame
+
+For bulk updates or state resets, non-animated mode prevents unnecessary computation:
+
+```swift
+func resetAllViews(_ views: [UIView]) {
+    // Much faster than animating 100 views
+    Wave.animate(withSpring: spring, mode: .nonAnimated) {
+        for view in views {
+            view.animator.center = defaultPosition
+            view.animator.alpha = 1.0
+        }
+    }
+}
+```
+
+## Decision guide
+
+Use `.animated` mode when:
+- Creating visual feedback for user actions
+- Transitioning between UI states
+- Responding to gestures or interactions
+- Providing delightful micro-interactions
+
+Use `.nonAnimated` mode when:
+- Interrupting an existing animation
+- Resetting UI to a default state
+- Setting initial values before view appears
+- User explicitly cancels an operation
+- Performance is critical (bulk updates)
+
+<Note>
+When in doubt, use `.animated` - that's what makes Wave special! Only reach for `.nonAnimated` when you specifically need to interrupt or snap.
+</Note>
