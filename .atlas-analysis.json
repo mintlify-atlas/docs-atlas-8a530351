@@ -1,0 +1,102 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Wave",
+  "projectDescription": "A spring-based animation engine for iOS and macOS that makes it easy to create fluid, interruptible animations.",
+  "theme": "palm",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/springs",
+              "concepts/retargeting",
+              "concepts/animation-modes"
+            ]
+          },
+          {
+            "group": "Usage Guides",
+            "pages": [
+              "guides/block-based-animations",
+              "guides/property-based-animations",
+              "guides/gesture-integration",
+              "guides/completion-handlers"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/picture-in-picture",
+              "examples/interactive-gestures",
+              "examples/swiftui-integration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/wave",
+              "api/spring",
+              "api/spring-animator"
+            ]
+          },
+          {
+            "group": "Animators",
+            "pages": [
+              "api/view-animator",
+              "api/layer-animator"
+            ]
+          },
+          {
+            "group": "Protocols",
+            "pages": [
+              "api/spring-interpolatable",
+              "api/animation-mode"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Spring-based physics animations with natural motion",
+    "Re-targetable animations that preserve velocity during interruptions",
+    "Block-based API similar to UIView.animate",
+    "Property-based animator API for custom animations",
+    "Support for UIKit, SwiftUI, and AppKit",
+    "Gesture velocity integration for smooth interactions",
+    "ProMotion 120fps animation support",
+    "Zero external dependencies"
+  ],
+  "publicApiSurface": [
+    "Wave.animate(withSpring:mode:delay:gestureVelocity:animations:completion:)",
+    "Spring(dampingRatio:response:mass:)",
+    "Spring(dampingRatio:stiffness:mass:)",
+    "Spring.defaultInteractive",
+    "Spring.defaultAnimated",
+    "SpringAnimator<T>",
+    "SpringAnimator.start(afterDelay:)",
+    "SpringAnimator.stop(immediately:)",
+    "ViewAnimator (UIView properties: frame, bounds, center, origin, alpha, backgroundColor, cornerRadius, scale, translation, shadow*, border*)",
+    "LayerAnimator (CALayer properties)",
+    "SpringInterpolatable protocol",
+    "AnimationMode (.animated, .nonAnimated)"
+  ]
+}
