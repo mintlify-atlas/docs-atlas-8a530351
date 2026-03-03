@@ -82,6 +82,12 @@
               "api/spring-interpolatable",
               "api/animation-mode"
             ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utilities"
+            ]
           }
         ]
       }

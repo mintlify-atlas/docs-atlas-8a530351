@@ -1,0 +1,227 @@
+---
+title: Utility functions
+description: Helper functions for gesture-driven animations, value mapping, and boundary calculations
+---
+
+Wave provides several public utility functions that are commonly used in gesture-driven animations and interactive interfaces.
+
+## Projection
+
+### project(value:velocity:decelerationRate:)
+
+Projects a scalar value based on its velocity, simulating where the value would end up after natural deceleration.
+
+<ParamField path="value" type="CGFloat" required>
+  The current value
+</ParamField>
+
+<ParamField path="velocity" type="CGFloat" required>
+  The current velocity (points per second)
+</ParamField>
+
+<ParamField path="decelerationRate" type="CGFloat" default="0.998">
+  The deceleration rate (0-1). Higher values = slower deceleration
+</ParamField>
+
+**Returns:** The projected final value
+
+```swift
+let currentPosition: CGFloat = 100
+let velocity: CGFloat = 500 // points per second
+
+let projectedPosition = project(value: currentPosition, velocity: velocity)
+// Use projectedPosition to determine snap target
+```
+
+### project(point:velocity:decelerationRate:)
+
+Projects a 2D point based on its 2D velocity.
+
+<ParamField path="point" type="CGPoint" required>
+  The current point
+</ParamField>
+
+<ParamField path="velocity" type="CGPoint" required>
+  The current velocity (points per second in x and y)
+</ParamField>
+
+<ParamField path="decelerationRate" type="CGFloat" default="0.998">
+  The deceleration rate (0-1)
+</ParamField>
+
+**Returns:** The projected final point
+
+```swift
+let currentCenter = view.center
+let gestureVelocity = panGesture.velocity(in: view.superview)
+
+let projectedCenter = project(point: currentCenter, velocity: gestureVelocity)
+
+// Determine which snap target is closest to projected position
+let snapTarget = closestSnapPoint(to: projectedCenter)
+```
+
+<Note>
+Projection is commonly used to determine snap targets in gesture-driven animations. When a user releases a dragged object, you can project where it would naturally end up and snap to the nearest valid position.
+</Note>
+
+## Value mapping
+
+### mapRange(value:inMin:inMax:outMin:outMax:clip:)
+
+Maps a value from one range to another using linear interpolation.
+
+<ParamField path="value" type="T: FloatingPoint" required>
+  The value to map
+</ParamField>
+
+<ParamField path="inMin" type="T" required>
+  The minimum of the input range
+</ParamField>
+
+<ParamField path="inMax" type="T" required>
+  The maximum of the input range
+</ParamField>
+
+<ParamField path="outMin" type="T" required>
+  The minimum of the output range
+</ParamField>
+
+<ParamField path="outMax" type="T" required>
+  The maximum of the output range
+</ParamField>
+
+<ParamField path="clip" type="Bool" default="false">
+  If true, clamps the result to the output range
+</ParamField>
+
+**Returns:** The mapped value
+
+```swift
+// Map touch Y position to scale (0.5x to 2.0x)
+let touchY = gesture.location(in: view).y
+let scale = mapRange(
+    value: touchY,
+    inMin: 0,
+    inMax: view.bounds.height,
+    outMin: 0.5,
+    outMax: 2.0
+)
+
+// Map progress (0-1) to sheet height
+let progress: CGFloat = 0.75
+let height = mapRange(
+    value: progress,
+    inMin: 0,
+    inMax: 1,
+    outMin: 100,    // collapsed height
+    outMax: 600,    // full height
+    clip: true      // ensure result stays in bounds
+)
+```
+
+### mapRange(_:_:_:_:_:clip:)
+
+Convenience overload that omits parameter labels for more concise syntax.
+
+```swift
+let scale = mapRange(touchY, 0, screenHeight, 0.5, 2.0)
+```
+
+<Tip>
+The `clip` parameter is useful when the input value might exceed the input range. Without clipping, values outside the input range will extrapolate beyond the output range.
+</Tip>
+
+## Boundary functions
+
+### clip(value:lower:upper:)
+
+Clamps a value to a specified range.
+
+<ParamField path="value" type="T: FloatingPoint" required>
+  The value to clamp
+</ParamField>
+
+<ParamField path="lower" type="T" required>
+  The minimum allowed value (inclusive)
+</ParamField>
+
+<ParamField path="upper" type="T" required>
+  The maximum allowed value (inclusive)
+</ParamField>
+
+**Returns:** The clamped value
+
+```swift
+let progress = clip(value: rawProgress, lower: 0, upper: 1)
+```
+
+### clipUnit(value:)
+
+Clamps a value to the range [0, 1].
+
+<ParamField path="value" type="T: FloatingPoint" required>
+  The value to clamp
+</ParamField>
+
+**Returns:** The clamped value between 0 and 1
+
+```swift
+let normalizedProgress = clipUnit(value: rawProgress)
+```
+
+## Rubber-banding
+
+### rubberband(value:range:interval:c:)
+
+Applies a rubber-band effect to values outside a specified range, similar to UIScrollView's overscroll behavior.
+
+<ParamField path="value" type="CGFloat" required>
+  The input value
+</ParamField>
+
+<ParamField path="range" type="ClosedRange<CGFloat>" required>
+  The range within which no rubber-banding occurs
+</ParamField>
+
+<ParamField path="interval" type="CGFloat" required>
+  The dimension used for rubber-band calculations (e.g., view width or height)
+</ParamField>
+
+<ParamField path="c" type="CGFloat" default="0.55">
+  The rubber-band constant. UIScrollView uses 0.55. Lower values = stronger resistance
+</ParamField>
+
+**Returns:** The rubber-banded value
+
+```swift
+let contentHeight: CGFloat = 1000
+let viewHeight: CGFloat = 400
+let validRange: ClosedRange<CGFloat> = 0...contentHeight
+
+// Apply rubber-banding to scroll offset
+let scrollOffset = gesture.translation(in: view).y
+let rubberbandedOffset = rubberband(
+    value: scrollOffset,
+    range: validRange,
+    interval: viewHeight,
+    c: 0.55
+)
+```
+
+<Note>
+Values within the specified range are returned unchanged. Values outside the range are progressively compressed using the rubber-band formula, creating a resistance effect.
+</Note>
+
+## Usage in examples
+
+These utilities are demonstrated in the examples:
+
+- [Interactive gestures](/examples/interactive-gestures) - Uses `project()` and `mapRange()` for gesture-driven animations
+- [Picture-in-picture](/examples/picture-in-picture) - Uses `project()` for velocity-based snap targets
+
+## See also
+
+- [Gesture integration](/guides/gesture-integration) - Learn how to use these utilities with gestures
+- [SpringAnimator](/api/spring-animator) - The property-based animation API
+- [Wave.animate()](/api/wave) - The block-based animation API
